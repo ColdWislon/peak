@@ -1,6 +1,7 @@
-import { localEastNorth, localToLatLon } from '../lib/geo';
+import { localEastNorth } from '../lib/geo';
+import { makeBlendedSampler } from '../lib/panorama/sampler';
 import { deserializeGeoHeightField } from '../lib/terrain/heightField';
-import { isVisible, type ElevationSampler } from '../lib/visibility';
+import { isVisible } from '../lib/visibility';
 import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
 
 /**
@@ -19,13 +20,7 @@ scope.onmessage = (event) => {
 
   const innerField = deserializeGeoHeightField(inner);
   const outerField = deserializeGeoHeightField(outer);
-
-  const sample: ElevationSampler = (east, north) => {
-    const p = localToLatLon(viewpoint, east, north);
-    const r = Math.hypot(east, north);
-    if (r < innerRadiusM && innerField.contains(p)) return innerField.elevationAt(p);
-    return outerField.contains(p) ? outerField.elevationAt(p) : 0;
-  };
+  const sample = makeBlendedSampler(viewpoint, innerField, outerField, innerRadiusM);
 
   const sights: PeakSight[] = peaks.map((peak) => {
     const { east, north } = localEastNorth(viewpoint, peak);

@@ -33,9 +33,12 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 - [x] 1.9 Géolocalisation + recherche Nominatim + état du point de vue dans l'URL + mini-fiche sommet
       (vérifié : téléportation Chamonix → Zermatt avec fixtures, Cervin étiqueté à 8,6 km ;
       piège corrigé : ne jamais passer un proxy $state à postMessage/au moteur — copier)
-- [ ] 1.10 Performances mobiles (budget triangles, travail en workers) + polish visuel
-      (fait : fondu DEM proche/lointain sur 4 km — reste : ciel en dégradé, maillage construit
-      en worker, rendu à la demande plutôt que rAF permanent, budget triangles adaptatif)
+- [x] 1.10 Performances mobiles (budget triangles, travail en workers) + polish visuel
+      (fondu DEM proche/lointain, dôme céleste en dégradé, maillage construit dans un worker
+      dédié avec aller-retour des tampons par transfert, rendu à la demande, grille allégée
+      sur écrans tactiles ; échantillonneur partagé entre workers terrain et visibilité)
+
+**Phase 1 terminée** — le mode panorama « v1 solide » du PLAN.md est complet.
 
 ## Notes environnement (sessions Claude Code distantes)
 
