@@ -8,22 +8,22 @@ a été validée explicitement.
 
 ## Décisions
 
-| # | Sujet | Décision |
-|---|-------|----------|
-| 1 | Produit | App complète (panorama 3D, carte 3D, AR), construite en phases |
-| 2 | Plateforme | Web/PWA d'abord (panorama + carte) ; l'AR viendra dans une app native, hors de ce dépôt |
-| 3 | Rendu 3D | Hybride : moteur panorama custom **Three.js** + carte **MapLibre GL** |
-| 4 | Données | 100 % libres, sans clé API : sommets **OSM/Overpass**, élévation **AWS Terrain Tiles** (terrarium), fond de carte **OpenFreeMap**, géocodage **Nominatim** |
-| 5 | Architecture | Zéro backend : SPA statique, cache IndexedDB, calculs en Web Workers |
-| 6 | Stack front | **Svelte + TypeScript + Vite** |
-| 7 | Phasage | Panorama d'abord (le risque technique en premier), puis carte, puis PWA/polish |
-| 8 | Scope phase 1 | « V1 solide » — voir détail ci-dessous |
-| 9 | Langue UI | Français d'abord, chaînes centralisées dans un module unique (i18n plus tard sans refactor) |
-| 10 | Déploiement | **GitHub Pages** via GitHub Actions (typecheck + tests + build + deploy à chaque merge sur `main`) |
-| 11 | Qualité | **Vitest** sur le cœur calculatoire (modules purs), typecheck strict ; pas d'E2E ni de tests visuels en v1 |
-| 12 | Nom | **Cimes** (le dépôt reste `peak`) |
-| 13 | Style | Sombre alpin : UI quasi-noir bleuté, accent bleu glacier, terrain/ciel lumineux, étiquettes blanches |
-| 14 | Licence | **MIT** (le code) ; attributions ODbL/OSM et tuiles affichées dans l'app |
+| #   | Sujet         | Décision                                                                                                                                                   |
+| --- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Produit       | App complète (panorama 3D, carte 3D, AR), construite en phases                                                                                             |
+| 2   | Plateforme    | Web/PWA d'abord (panorama + carte) ; l'AR viendra dans une app native, hors de ce dépôt                                                                    |
+| 3   | Rendu 3D      | Hybride : moteur panorama custom **Three.js** + carte **MapLibre GL**                                                                                      |
+| 4   | Données       | 100 % libres, sans clé API : sommets **OSM/Overpass**, élévation **AWS Terrain Tiles** (terrarium), fond de carte **OpenFreeMap**, géocodage **Nominatim** |
+| 5   | Architecture  | Zéro backend : SPA statique, cache IndexedDB, calculs en Web Workers                                                                                       |
+| 6   | Stack front   | **Svelte + TypeScript + Vite**                                                                                                                             |
+| 7   | Phasage       | Panorama d'abord (le risque technique en premier), puis carte, puis PWA/polish                                                                             |
+| 8   | Scope phase 1 | « V1 solide » — voir détail ci-dessous                                                                                                                     |
+| 9   | Langue UI     | Français d'abord, chaînes centralisées dans un module unique (i18n plus tard sans refactor)                                                                |
+| 10  | Déploiement   | **GitHub Pages** via GitHub Actions (typecheck + tests + build + deploy à chaque merge sur `main`)                                                         |
+| 11  | Qualité       | **Vitest** sur le cœur calculatoire (modules purs), typecheck strict ; pas d'E2E ni de tests visuels en v1                                                 |
+| 12  | Nom           | **Cimes** (le dépôt reste `peak`)                                                                                                                          |
+| 13  | Style         | Sombre alpin : UI quasi-noir bleuté, accent bleu glacier, terrain/ciel lumineux, étiquettes blanches                                                       |
+| 14  | Licence       | **MIT** (le code) ; attributions ODbL/OSM et tuiles affichées dans l'app                                                                                   |
 
 Arbitrages par défaut (modifiables à tout moment) :
 
