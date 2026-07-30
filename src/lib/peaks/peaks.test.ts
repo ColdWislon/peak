@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildPeaksQuery, parseElevation, parsePeaks, topPeaks } from './index';
+import {
+  buildPeaksQuery,
+  parseElevation,
+  parsePeaks,
+  peakDisplayName,
+  peakImportance,
+  topPeaks,
+  type Peak,
+} from './index';
 
 const FIXTURE = {
   version: 0.6,
@@ -9,7 +17,13 @@ const FIXTURE = {
       id: 26862480,
       lat: 45.8326,
       lon: 6.8652,
-      tags: { natural: 'peak', name: 'Mont Blanc', ele: '4808.72', wikidata: 'Q583' },
+      tags: {
+        natural: 'peak',
+        name: 'Mont Blanc',
+        ele: '4808.72',
+        prominence: '4696',
+        wikidata: 'Q583',
+      },
     },
     {
       type: 'node',
@@ -66,21 +80,24 @@ describe('parseElevation', () => {
 describe('parsePeaks', () => {
   const peaks = parsePeaks(FIXTURE);
 
-  it('ne garde que les nœuds nommés et localisés', () => {
+  it('ne garde que les nœuds nommés et localisés (nom local en clef)', () => {
     expect(peaks.map((p) => p.name)).toEqual([
       'Mont Blanc',
       'Aiguille du Midi',
       'Ele illisible',
-      'Cervin',
+      'Matterhorn',
     ]);
   });
 
-  it('préfère le nom français et garde wikidata', () => {
+  it('conserve le nom français à part, avec wikidata et proéminence', () => {
     const cervin = peaks.find((p) => p.id === 3)!;
-    expect(cervin.name).toBe('Cervin');
+    expect(cervin.name).toBe('Matterhorn');
+    expect(cervin.nameFr).toBe('Cervin');
     const montBlanc = peaks.find((p) => p.id === 26862480)!;
     expect(montBlanc.wikidata).toBe('Q583');
     expect(montBlanc.elevation).toBeCloseTo(4808.72, 2);
+    expect(montBlanc.prominence).toBe(4696);
+    expect(montBlanc.nameFr).toBeNull();
   });
 
   it("laisse l'altitude à null quand le tag est illisible", () => {
@@ -94,11 +111,43 @@ describe('parsePeaks', () => {
   });
 });
 
-describe('topPeaks', () => {
-  it('trie par altitude décroissante, sans altitude en dernier', () => {
+function makePeak(partial: Partial<Peak>): Peak {
+  return {
+    id: 0,
+    name: 'Sommet',
+    nameFr: null,
+    lat: 0,
+    lon: 0,
+    elevation: null,
+    prominence: null,
+    wikidata: null,
+    ...partial,
+  };
+}
+
+describe('peakDisplayName', () => {
+  const cervin = makePeak({ name: 'Matterhorn', nameFr: 'Cervin' });
+  const sansFr = makePeak({ name: 'Weisshorn' });
+
+  it('suit la préférence, avec repli sur le nom local', () => {
+    expect(peakDisplayName(cervin, 'fr')).toBe('Cervin');
+    expect(peakDisplayName(cervin, 'local')).toBe('Matterhorn');
+    expect(peakDisplayName(sansFr, 'fr')).toBe('Weisshorn');
+  });
+});
+
+describe('peakImportance et topPeaks', () => {
+  it('trie par importance décroissante, sans altitude en dernier', () => {
     const peaks = parsePeaks(FIXTURE);
     const top = topPeaks(peaks, 3);
-    expect(top.map((p) => p.name)).toEqual(['Mont Blanc', 'Cervin', 'Aiguille du Midi']);
+    expect(top.map((p) => p.name)).toEqual(['Mont Blanc', 'Matterhorn', 'Aiguille du Midi']);
+  });
+
+  it('fait passer un sommet proéminent devant une antécime plus haute', () => {
+    const antecime = makePeak({ id: 1, name: 'Antécime', elevation: 4200 });
+    const proeminent = makePeak({ id: 2, name: 'Proéminent', elevation: 4000, prominence: 2000 });
+    expect(peakImportance(proeminent)).toBeGreaterThan(peakImportance(antecime));
+    expect(topPeaks([antecime, proeminent], 2)[0]!.name).toBe('Proéminent');
   });
 
   it('ne mute pas le tableau source', () => {

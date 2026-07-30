@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fr } from '../lib/i18n/fr';
+  import type { NamePreference } from '../lib/peaks';
   import type { RenderQuality, Units } from '../lib/settings';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
 
@@ -16,6 +17,11 @@
     { value: 'imperial', label: fr.settings.unitsImperial },
   ];
 
+  const nameChoices: Array<{ value: NamePreference; label: string }> = [
+    { value: 'fr', label: fr.settings.namesFr },
+    { value: 'local', label: fr.settings.namesLocal },
+  ];
+
   function setQuality(value: RenderQuality): void {
     settings.quality = value;
     saveSettings();
@@ -23,6 +29,11 @@
 
   function setUnits(value: Units): void {
     settings.units = value;
+    saveSettings();
+  }
+
+  function setNames(value: NamePreference): void {
+    settings.names = value;
     saveSettings();
   }
 </script>
@@ -69,6 +80,22 @@
               value={choice.value}
               checked={settings.units === choice.value}
               onchange={() => setUnits(choice.value)}
+            />
+            {choice.label}
+          </label>
+        {/each}
+      </fieldset>
+
+      <fieldset>
+        <legend>{fr.settings.names}</legend>
+        {#each nameChoices as choice (choice.value)}
+          <label>
+            <input
+              type="radio"
+              name="noms"
+              value={choice.value}
+              checked={settings.names === choice.value}
+              onchange={() => setNames(choice.value)}
             />
             {choice.label}
           </label>

@@ -1,3 +1,5 @@
+import type { NamePreference } from '../peaks';
+
 /**
  * Réglages de l'app (backlog phase 3) : types, valeurs par défaut et
  * (dé)sérialisation tolérante pour localStorage. Module pur, testé —
@@ -12,12 +14,15 @@ export interface Settings {
   quality: RenderQuality;
   /** Unités d'altitude et de distance affichées. */
   units: Units;
+  /** Nom des sommets : français quand disponible, ou nom local. */
+  names: NamePreference;
 }
 
-export const DEFAULT_SETTINGS: Settings = { quality: 'auto', units: 'metric' };
+export const DEFAULT_SETTINGS: Settings = { quality: 'auto', units: 'metric', names: 'fr' };
 
 const QUALITIES: readonly RenderQuality[] = ['auto', 'elevee', 'eco'];
 const UNITS: readonly Units[] = ['metric', 'imperial'];
+const NAMES: readonly NamePreference[] = ['fr', 'local'];
 
 /** Relit des réglages stockés ; toute valeur absente ou inconnue retombe sur le défaut. */
 export function parseSettings(raw: string | null): Settings {
@@ -31,6 +36,9 @@ export function parseSettings(raw: string | null): Settings {
       units: UNITS.includes(parsed.units as Units)
         ? (parsed.units as Units)
         : DEFAULT_SETTINGS.units,
+      names: NAMES.includes(parsed.names as NamePreference)
+        ? (parsed.names as NamePreference)
+        : DEFAULT_SETTINGS.names,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

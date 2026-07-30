@@ -1,5 +1,5 @@
 import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
-import type { Peak } from '../peaks';
+import { peakDisplayName, peakImportance, type NamePreference, type Peak } from '../peaks';
 import type { Units } from '../settings';
 import type { PeakSight } from '../visibility/protocol';
 
@@ -47,6 +47,7 @@ export function toCandidates(
   sights: PeakSight[],
   peaks: Peak[],
   eyeElevation: number,
+  namePreference: NamePreference = 'fr',
 ): LabelCandidate[] {
   const byId = new Map(peaks.map((p) => [p.id, p]));
   const candidates: LabelCandidate[] = [];
@@ -57,12 +58,12 @@ export function toCandidates(
     if (!peak) continue;
     candidates.push({
       id: sight.id,
-      name: peak.name,
+      name: peakDisplayName(peak, namePreference),
       elevation: sight.elevation,
       distanceM: sight.distanceM,
       azimuthDeg: normalizeBearing(radToDeg(Math.atan2(sight.east, sight.north))),
       elevAngleRad: apparentElevationAngle(sight.distanceM, sight.elevation - eyeElevation),
-      score: sight.elevation,
+      score: peakImportance({ elevation: sight.elevation, prominence: peak.prominence }),
     });
   }
 

@@ -39,6 +39,7 @@
 
   let context: PanoramaContext | undefined;
   let peaks: Peak[] = [];
+  let sights: PeakSight[] = [];
   let candidates: LabelCandidate[] = [];
   let relayoutQueued = false;
 
@@ -58,9 +59,10 @@
     });
   }
 
-  function onSights(sights: PeakSight[]): void {
+  function onSights(newSights: PeakSight[]): void {
+    sights = newSights;
     if (!context) return;
-    candidates = toCandidates(sights, peaks, context.eyeElevation);
+    candidates = toCandidates(sights, peaks, context.eyeElevation, settings.names);
     peaksStatus = candidates.length > 0 ? 'ok' : 'noneVisible';
     relayout();
   }
@@ -98,6 +100,7 @@
     labels = [];
     selected = null;
     candidates = [];
+    sights = [];
     peaksStatus = 'idle';
     // Un worker neuf par chargement : les visibilités de l'ancien point de
     // vue encore en vol sont abandonnées avec lui.
@@ -136,6 +139,14 @@
       worker?.terminate();
       engine?.dispose();
     };
+  });
+
+  // La préférence de nom recompose les candidats sans recharger quoi que ce soit.
+  $effect(() => {
+    void settings.names;
+    if (!context || sights.length === 0) return;
+    candidates = toCandidates(sights, peaks, context.eyeElevation, settings.names);
+    relayout();
   });
 
   // Premier chargement et rechargements : suit le point de vue (téléportation)
