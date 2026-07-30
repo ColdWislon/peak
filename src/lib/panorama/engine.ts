@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { degToRad, localToLatLon, type LatLon } from '../geo';
 import { tileBlockAround, tileCount } from '../terrain/blocks';
-import type { GeoHeightField } from '../terrain/heightField';
+import {
+  serializeGeoHeightField,
+  type GeoHeightField,
+  type GeoHeightFieldData,
+} from '../terrain/heightField';
 import { loadBlockHeightField } from '../terrain/loader';
 import { elevationToColor } from './colors';
 import { PanoramaControls, type ViewState } from './controls';
@@ -25,6 +29,16 @@ const MESH_MAX_RADIUS_M = OUTER.radiusM - 5_000;
 const SKY_COLOR = new THREE.Color('#a9c8e6');
 
 export type ProgressCallback = (done: number, total: number) => void;
+
+/** Ce que le chargement laisse derrière lui, prêt pour le worker de visibilité. */
+export interface PanoramaContext {
+  viewpoint: LatLon;
+  /** Altitude de l'œil (sol + hauteur d'observation) (m). */
+  eyeElevation: number;
+  innerRadiusM: number;
+  inner: GeoHeightFieldData;
+  outer: GeoHeightFieldData;
+}
 
 export class PanoramaEngine {
   private readonly renderer: THREE.WebGLRenderer;
@@ -75,7 +89,7 @@ export class PanoramaEngine {
   }
 
   /** Charge le relief autour du point de vue et (re)construit le terrain. */
-  async load(viewpoint: LatLon, onProgress?: ProgressCallback): Promise<void> {
+  async load(viewpoint: LatLon, onProgress?: ProgressCallback): Promise<PanoramaContext> {
     const innerBlock = tileBlockAround(viewpoint, INNER.radiusM, INNER.zoom);
     const outerBlock = tileBlockAround(viewpoint, OUTER.radiusM, OUTER.zoom);
     const total = tileCount(innerBlock) + tileCount(outerBlock);
@@ -87,10 +101,17 @@ export class PanoramaEngine {
       loadBlockHeightField(outerBlock, { onProgress: tick }),
     ]);
 
-    this.buildTerrain(viewpoint, inner, outer);
+    const eyeElevation = this.buildTerrain(viewpoint, inner, outer);
+    return {
+      viewpoint,
+      eyeElevation,
+      innerRadiusM: INNER.radiusM,
+      inner: serializeGeoHeightField(inner),
+      outer: serializeGeoHeightField(outer),
+    };
   }
 
-  private buildTerrain(viewpoint: LatLon, inner: GeoHeightField, outer: GeoHeightField): void {
+  private buildTerrain(viewpoint: LatLon, inner: GeoHeightField, outer: GeoHeightField): number {
     const sample = (east: number, north: number): number => {
       const p = localToLatLon(viewpoint, east, north);
       const r = Math.hypot(east, north);
@@ -118,8 +139,10 @@ export class PanoramaEngine {
     this.scene.add(this.terrain);
 
     const groundElevation = sample(0, 0);
-    this.camera.position.set(0, groundElevation + EYE_HEIGHT_M, 0);
+    const eyeElevation = groundElevation + EYE_HEIGHT_M;
+    this.camera.position.set(0, eyeElevation, 0);
     this.applyView();
+    return eyeElevation;
   }
 
   private applyView(): void {

@@ -11,6 +11,11 @@ export const fr = {
     loadError: 'Impossible de charger le relief. Vérifiez la connexion puis réessayez.',
     retry: 'Réessayer',
   },
+  peakCard: {
+    elevation: 'Altitude',
+    distance: 'Distance',
+    close: 'Fermer',
+  },
   attributions: {
     intro: 'Données :',
     osm: '© contributeurs OpenStreetMap',
