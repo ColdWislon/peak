@@ -62,4 +62,15 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 
 ## Phase 3 — PWA
 
-- [ ] Manifest + service worker + réglages + attributions complètes
+- [x] Manifest + service worker + attributions complètes
+      (installable, coque en cache-first, navigation avec repli hors-ligne, tuiles S3 en
+      cache plafonné à 600 entrées ; vérifié sur build de prod : enregistrement, activation,
+      portée /peak/, cache coque créé)
+
+## Backlog (après les 3 phases du plan)
+
+- [ ] Réglages (qualité de rendu, unités) — reporté de la phase 3
+- [ ] Icônes PWA en PNG 192/512 (maskable) en plus du SVG
+- [ ] Vérifier hillshade/terrain MapLibre sur l'app déployée (angle mort SwiftShader du bac à sable)
+- [ ] Étiquettes : nom `name:fr` vs local selon préférence ; proéminence quand disponible
+- [ ] Phase 4 : app native AR (hors de ce dépôt)
