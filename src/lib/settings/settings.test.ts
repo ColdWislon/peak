@@ -3,8 +3,18 @@ import { DEFAULT_SETTINGS, parseSettings, serializeSettings } from './index';
 
 describe('parseSettings', () => {
   it('boucle avec serializeSettings', () => {
-    const settings = { quality: 'eco', units: 'imperial', names: 'local' } as const;
+    const settings = {
+      quality: 'eco',
+      units: 'imperial',
+      names: 'local',
+      cameraFovDeg: 68.5,
+    } as const;
     expect(parseSettings(serializeSettings(settings))).toEqual(settings);
+  });
+
+  it('rejette un FOV caméra absurde', () => {
+    expect(parseSettings('{"cameraFovDeg":300}').cameraFovDeg).toBeNull();
+    expect(parseSettings('{"cameraFovDeg":"large"}').cameraFovDeg).toBeNull();
   });
 
   it('retombe sur les défauts pour null, JSON cassé ou valeurs inconnues', () => {
@@ -20,6 +30,7 @@ describe('parseSettings', () => {
       quality: 'auto',
       units: 'imperial',
       names: 'fr',
+      cameraFovDeg: null,
     });
   });
 

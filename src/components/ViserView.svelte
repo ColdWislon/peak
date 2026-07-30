@@ -5,7 +5,7 @@
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
   import { topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
-  import { settings } from '../lib/settings/store.svelte';
+  import { saveSettings, settings } from '../lib/settings/store.svelte';
   import { tileBlockAround } from '../lib/terrain/blocks';
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
@@ -23,8 +23,8 @@
   const OUTER = { zoom: 10, radiusM: 115_000 };
   /** Téléphone tenu à la main. */
   const EYE_HEIGHT_M = 1.7;
-  /** FOV vertical supposé de la caméra arrière (typique 50–60°). */
-  const FOV_DEG = 55;
+  /** FOV vertical par défaut, remplacé par la mesure au recalage horizon. */
+  const DEFAULT_FOV_DEG = 55;
   const PEAKS_RADIUS_M = 75_000;
   const PEAKS_LIMIT = 300;
   /** Pas d'azimut du profil d'horizon théorique (°). */
@@ -61,6 +61,11 @@
   let gotSensor = false;
   let relayoutQueued = false;
 
+  /** Le web n'expose pas le FOV caméra : étalonné par l'horizon, persisté. */
+  function currentFov(): number {
+    return settings.cameraFovDeg ?? DEFAULT_FOV_DEG;
+  }
+
   function relayout(): void {
     if (relayoutQueued || !container) return;
     relayoutQueued = true;
@@ -72,7 +77,7 @@
       const view = {
         headingDeg: headingNow,
         pitchDeg: aim.pitch + pitchOffset,
-        fovDeg: FOV_DEG,
+        fovDeg: currentFov(),
         width: container.clientWidth,
         height: container.clientHeight,
       };
@@ -201,10 +206,10 @@
         {
           headingDeg: normalizeBearing(aim.heading + headingOffset),
           pitchDeg: aim.pitch + pitchOffset,
-          fovDeg: FOV_DEG,
+          fovDeg: currentFov(),
         },
         demSkyline,
-        { demStepDeg: SKYLINE_STEP_DEG },
+        { demStepDeg: SKYLINE_STEP_DEG, fovSearch: {} },
       );
 
       if (!match || match.maeDeg > 1.5) {
@@ -213,7 +218,15 @@
         headingOffset += match.headingOffsetDeg;
         pitchOffset += match.pitchOffsetDeg;
         const deg = Math.round(match.headingOffsetDeg);
-        calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;
+        // La surface de coût est plate en FOV : on ne persiste l'optique
+        // mesurée que sur un alignement excellent.
+        if (match.maeDeg <= 0.8) {
+          settings.cameraFovDeg = Math.round(match.fovDeg * 2) / 2;
+          saveSettings();
+          calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(match.fovDeg)}°)`;
+        } else {
+          calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;
+        }
         relayout();
       }
     } catch {
@@ -237,7 +250,7 @@
   }
   function onMove(e: PointerEvent): void {
     if (!dragging || phase !== 'running') return;
-    const degPerPx = FOV_DEG / Math.max(1, container.clientHeight);
+    const degPerPx = currentFov() / Math.max(1, container.clientHeight);
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
     lastX = e.clientX;

@@ -82,6 +82,12 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       projetée avec les mêmes conventions de caméra que les étiquettes (`skylineScreenPoints`,
       testé) — repère visuel pour le recalage manuel et lecture directe de ce que « pense »
       le recalage automatique.
+- [x] FOV caméra mesuré par l'horizon (le web ne l'expose pas) : recherche à trois
+      dimensions cap × assiette × FOV (40–80°, grossier→fin) dans matchSkyline, a priori
+      très doux vers le FOV courant (surface de coût plate : le cap absorbe une partie de
+      la compression), persisté par appareil (`cameraFovDeg`) uniquement sur alignement
+      excellent (mae ≤ 0,8°) et utilisé partout (étiquettes, horizon, glissés). Testé :
+      68° retrouvés à ±2° depuis une hypothèse à 55°.
 
 - [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
       localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,

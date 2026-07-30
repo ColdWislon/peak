@@ -133,10 +133,20 @@ export interface SkylineMatch {
   headingOffsetDeg: number;
   /** À ajouter à l'assiette courante. */
   pitchOffsetDeg: number;
+  /** FOV vertical retenu (°) — égal à `view.fovDeg` sans estimation. */
+  fovDeg: number;
   /** Erreur absolue moyenne (°) au meilleur alignement. */
   maeDeg: number;
   /** Colonnes exploitées (confiance suffisante). */
   usedColumns: number;
+}
+
+/** Plage d'estimation du FOV caméra (le web ne l'expose pas : on le mesure). */
+export interface FovSearch {
+  minDeg?: number;
+  maxDeg?: number;
+  coarseStepDeg?: number;
+  fineStepDeg?: number;
 }
 
 /** Direction (azimut relatif, élévation) du pixel (x, y), assiette comprise. */
@@ -187,6 +197,8 @@ export function matchSkyline(
     searchDeg?: number;
     pitchSearchDeg?: number;
     minConfidence?: number;
+    /** Si présent, le FOV est estimé en plus du cap et de l'assiette. */
+    fovSearch?: FovSearch;
   } = {},
 ): SkylineMatch | null {
   const demStepDeg = options.demStepDeg ?? 0.5;
@@ -195,45 +207,79 @@ export function matchSkyline(
   const pitchSearchDeg = options.pitchSearchDeg ?? 4;
   const minConfidence = options.minConfidence ?? 0.35;
 
-  const samples: Array<{ azRelDeg: number; elevDeg: number }> = [];
+  const columns: number[] = [];
   for (let x = 0; x < detected.width; x++) {
-    if (detected.confidence[x]! < minConfidence) continue;
-    samples.push(
-      pixelToAngles(
-        x,
-        detected.rows[x]!,
-        detected.width,
-        detected.height,
-        view.pitchDeg,
-        view.fovDeg,
-      ),
-    );
+    if (detected.confidence[x]! >= minConfidence) columns.push(x);
   }
-  if (samples.length < detected.width * 0.25) return null;
+  if (columns.length < detected.width * 0.25) return null;
 
-  let best: SkylineMatch | null = null;
-  let bestCost = Infinity;
-  for (let hOff = -searchDeg; hOff <= searchDeg; hOff += 0.25) {
-    for (let pOff = -pitchSearchDeg; pOff <= pitchSearchDeg; pOff += 0.5) {
-      let sum = 0;
-      for (const s of samples) {
-        const expected = demAngleDeg(demSkyline, view.headingDeg + hOff + s.azRelDeg, demStepDeg);
-        sum += Math.abs(expected - (s.elevDeg + pOff));
-      }
-      const mae = sum / samples.length;
-      // Un horizon localement rectiligne rend cap et assiette interchangeables :
-      // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
-      const cost = mae + 0.05 * Math.abs(pOff);
-      if (cost < bestCost) {
-        bestCost = cost;
-        best = {
-          headingOffsetDeg: hOff,
-          pitchOffsetDeg: pOff,
-          maeDeg: mae,
-          usedColumns: samples.length,
-        };
+  // Les angles des colonnes dépendent du FOV testé : tout est recalculé par candidat.
+  const evaluate = (fovDeg: number): { match: SkylineMatch; cost: number } => {
+    const samples = columns.map((x) =>
+      pixelToAngles(x, detected.rows[x]!, detected.width, detected.height, view.pitchDeg, fovDeg),
+    );
+    let match: SkylineMatch = {
+      headingOffsetDeg: 0,
+      pitchOffsetDeg: 0,
+      fovDeg,
+      maeDeg: Infinity,
+      usedColumns: samples.length,
+    };
+    let bestCost = Infinity;
+    for (let hOff = -searchDeg; hOff <= searchDeg; hOff += 0.25) {
+      for (let pOff = -pitchSearchDeg; pOff <= pitchSearchDeg; pOff += 0.5) {
+        let sum = 0;
+        for (const s of samples) {
+          const expected = demAngleDeg(demSkyline, view.headingDeg + hOff + s.azRelDeg, demStepDeg);
+          sum += Math.abs(expected - (s.elevDeg + pOff));
+        }
+        const mae = sum / samples.length;
+        // Un horizon localement rectiligne rend cap et assiette interchangeables :
+        // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
+        const cost = mae + 0.05 * Math.abs(pOff);
+        if (cost < bestCost) {
+          bestCost = cost;
+          match = {
+            headingOffsetDeg: hOff,
+            pitchOffsetDeg: pOff,
+            fovDeg,
+            maeDeg: mae,
+            usedColumns: samples.length,
+          };
+        }
       }
     }
+    return { match, cost: bestCost };
+  };
+
+  if (!options.fovSearch) return evaluate(view.fovDeg).match;
+
+  // Estimation du FOV : balayage grossier puis fin, avec un a priori doux vers
+  // le FOV courant (un horizon plat ne contraint pas l'optique : on n'en change
+  // alors pas sans raison).
+  const minDeg = options.fovSearch.minDeg ?? 40;
+  const maxDeg = options.fovSearch.maxDeg ?? 80;
+  const coarse = options.fovSearch.coarseStepDeg ?? 4;
+  const fine = options.fovSearch.fineStepDeg ?? 1;
+
+  let bestOverall: { match: SkylineMatch; cost: number } | null = null;
+  const consider = (fovDeg: number) => {
+    const r = evaluate(fovDeg);
+    // A priori très doux : la surface de coût est plate en FOV (le cap absorbe
+    // une partie de la compression) — il départage sans jamais dominer l'écart
+    // réel mesuré (~0,005°/° de FOV sur un horizon net).
+    const cost = r.cost + 0.002 * Math.abs(fovDeg - view.fovDeg);
+    if (!bestOverall || cost < bestOverall.cost) bestOverall = { match: r.match, cost };
+  };
+
+  for (let f = minDeg; f <= maxDeg; f += coarse) consider(f);
+  const center = bestOverall!.match.fovDeg;
+  for (
+    let f = Math.max(minDeg, center - coarse);
+    f <= Math.min(maxDeg, center + coarse);
+    f += fine
+  ) {
+    consider(f);
   }
-  return best;
+  return bestOverall!.match;
 }

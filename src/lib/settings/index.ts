@@ -16,9 +16,16 @@ export interface Settings {
   units: Units;
   /** Nom des sommets : français quand disponible, ou nom local. */
   names: NamePreference;
+  /** FOV vertical de la caméra (°), mesuré par recalage horizon ; null = pas étalonné. */
+  cameraFovDeg: number | null;
 }
 
-export const DEFAULT_SETTINGS: Settings = { quality: 'auto', units: 'metric', names: 'fr' };
+export const DEFAULT_SETTINGS: Settings = {
+  quality: 'auto',
+  units: 'metric',
+  names: 'fr',
+  cameraFovDeg: null,
+};
 
 const QUALITIES: readonly RenderQuality[] = ['auto', 'elevee', 'eco'];
 const UNITS: readonly Units[] = ['metric', 'imperial'];
@@ -39,6 +46,13 @@ export function parseSettings(raw: string | null): Settings {
       names: NAMES.includes(parsed.names as NamePreference)
         ? (parsed.names as NamePreference)
         : DEFAULT_SETTINGS.names,
+      cameraFovDeg:
+        typeof parsed.cameraFovDeg === 'number' &&
+        Number.isFinite(parsed.cameraFovDeg) &&
+        parsed.cameraFovDeg >= 30 &&
+        parsed.cameraFovDeg <= 100
+          ? parsed.cameraFovDeg
+          : null,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
