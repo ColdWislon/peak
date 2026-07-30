@@ -34,6 +34,8 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       (vérifié : téléportation Chamonix → Zermatt avec fixtures, Cervin étiqueté à 8,6 km ;
       piège corrigé : ne jamais passer un proxy $state à postMessage/au moteur — copier)
 - [ ] 1.10 Performances mobiles (budget triangles, travail en workers) + polish visuel
+      (fait : fondu DEM proche/lointain sur 4 km — reste : ciel en dégradé, maillage construit
+      en worker, rendu à la demande plutôt que rAF permanent, budget triangles adaptatif)
 
 ## Notes environnement (sessions Claude Code distantes)
 

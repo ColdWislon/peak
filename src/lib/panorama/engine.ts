@@ -112,11 +112,18 @@ export class PanoramaEngine {
   }
 
   private buildTerrain(viewpoint: LatLon, inner: GeoHeightField, outer: GeoHeightField): number {
+    // Fondu proche/lointain sur les 4 derniers kilomètres du champ z12 :
+    // sans lui, le saut de résolution dessine une couture circulaire à 24 km.
+    const blendStart = INNER.radiusM - 4_000;
     const sample = (east: number, north: number): number => {
       const p = localToLatLon(viewpoint, east, north);
       const r = Math.hypot(east, north);
-      if (r < INNER.radiusM && inner.contains(p)) return inner.elevationAt(p);
-      return outer.contains(p) ? outer.elevationAt(p) : 0;
+      const outerElev = () => (outer.contains(p) ? outer.elevationAt(p) : 0);
+      if (r >= INNER.radiusM || !inner.contains(p)) return outerElev();
+      const innerElev = inner.elevationAt(p);
+      if (r < blendStart) return innerElev;
+      const t = (r - blendStart) / (INNER.radiusM - blendStart);
+      return innerElev * (1 - t) + outerElev() * t;
     };
 
     const data = buildPolarTerrainMesh(sample, elevationToColor, {
