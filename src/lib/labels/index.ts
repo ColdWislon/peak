@@ -1,5 +1,6 @@
 import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
 import type { Peak } from '../peaks';
+import type { Units } from '../settings';
 import type { PeakSight } from '../visibility/protocol';
 
 /**
@@ -169,13 +170,24 @@ export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): P
   return placed;
 }
 
-/** « 4 808 m » — altitude formatée à la française. */
-export function formatElevation(elevation: number): string {
+const FEET_PER_METER = 3.28084;
+const METERS_PER_MILE = 1609.344;
+
+/** « 4 808 m » (ou « 15 774 ft » en unités impériales). */
+export function formatElevation(elevation: number, units: Units = 'metric'): string {
+  if (units === 'imperial') {
+    return `${Math.round(elevation * FEET_PER_METER).toLocaleString('fr-FR')} ft`;
+  }
   return `${Math.round(elevation).toLocaleString('fr-FR')} m`;
 }
 
-/** « 12,4 km » (ou « 850 m » sous le kilomètre). */
-export function formatDistance(distanceM: number): string {
+/** « 12,4 km » / « 850 m » — ou « 7,7 mi » / « 520 ft » en unités impériales. */
+export function formatDistance(distanceM: number, units: Units = 'metric'): string {
+  if (units === 'imperial') {
+    const miles = distanceM / METERS_PER_MILE;
+    if (miles < 0.1) return `${Math.round(distanceM * FEET_PER_METER)} ft`;
+    return `${miles.toLocaleString('fr-FR', { maximumFractionDigits: miles < 10 ? 1 : 0 })} mi`;
+  }
   if (distanceM < 1000) return `${Math.round(distanceM)} m`;
   const km = distanceM / 1000;
   return `${km.toLocaleString('fr-FR', { maximumFractionDigits: km < 10 ? 1 : 0 })} km`;

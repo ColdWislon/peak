@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDistance, formatElevation, type PlacedLabel } from '../lib/labels';
+  import { settings } from '../lib/settings/store.svelte';
 
   let {
     labels,
@@ -19,7 +20,10 @@
     >
       <span class="name">{label.name}</span>
       <span class="meta"
-        >{formatElevation(label.elevation)} · {formatDistance(label.distanceM)}</span
+        >{formatElevation(label.elevation, settings.units)} · {formatDistance(
+          label.distanceM,
+          settings.units,
+        )}</span
       >
     </button>
   {/each}

@@ -120,4 +120,11 @@ describe('formats français', () => {
     expect(formatDistance(8_360)).toBe('8,4 km');
     expect(formatDistance(64_800)).toBe('65 km');
   });
+
+  it('formate en unités impériales', () => {
+    expect(formatElevation(4808, 'imperial').replace(/\s/g, ' ')).toBe('15 774 ft');
+    expect(formatDistance(100, 'imperial')).toBe('328 ft');
+    expect(formatDistance(12_360, 'imperial')).toBe('7,7 mi');
+    expect(formatDistance(64_800, 'imperial')).toBe('40 mi');
+  });
 });

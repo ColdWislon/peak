@@ -13,6 +13,7 @@
   import { PanoramaEngine, type PanoramaContext } from '../lib/panorama/engine';
   import { topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
+  import { settings } from '../lib/settings/store.svelte';
   import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
   import PeakLabels from './PeakLabels.svelte';
 
@@ -137,11 +138,14 @@
     };
   });
 
-  // Premier chargement et rechargements : suit le point de vue (téléportation).
+  // Premier chargement et rechargements : suit le point de vue (téléportation)
+  // et la qualité de rendu choisie dans les réglages.
   $effect(() => {
     void viewpoint.lat;
     void viewpoint.lon;
+    void settings.quality;
     if (!engine) return;
+    engine.setQuality(settings.quality);
     void load();
   });
 </script>
@@ -178,8 +182,10 @@
       </button>
       <h2>{selected.name}</h2>
       <p>
-        {fr.peakCard.elevation} : <strong>{formatElevation(selected.elevation)}</strong><br />
-        {fr.peakCard.distance} : <strong>{formatDistance(selected.distanceM)}</strong>
+        {fr.peakCard.elevation} :
+        <strong>{formatElevation(selected.elevation, settings.units)}</strong><br />
+        {fr.peakCard.distance} :
+        <strong>{formatDistance(selected.distanceM, settings.units)}</strong>
       </p>
     </aside>
   {/if}

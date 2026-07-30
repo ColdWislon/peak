@@ -34,6 +34,16 @@ export const fr = {
     panorama: 'Panorama',
     map: 'Carte',
   },
+  settings: {
+    title: 'Réglages',
+    quality: 'Qualité de rendu',
+    qualityAuto: 'Auto',
+    qualityHigh: 'Élevée',
+    qualityEco: 'Économique',
+    units: 'Unités',
+    unitsMetric: 'Mètres (m, km)',
+    unitsImperial: 'Pieds (ft, mi)',
+  },
   map: {
     panoramaHere: 'Panorama ici',
     seePanorama: 'Voir le panorama d’ici',
