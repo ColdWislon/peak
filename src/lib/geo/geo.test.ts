@@ -7,6 +7,7 @@ import {
   haversineDistance,
   initialBearing,
   localEastNorth,
+  localToLatLon,
   normalizeBearing,
   normalizeLon,
 } from './index';
@@ -114,5 +115,20 @@ describe('apparentElevationAngle', () => {
 
   it('retrouve la pente géométrique à courte distance', () => {
     expect(apparentElevationAngle(1000, 1000)).toBeCloseTo(Math.PI / 4, 3);
+  });
+});
+
+describe('localToLatLon', () => {
+  it('est la réciproque de localEastNorth, même à 50 km', () => {
+    const p = localToLatLon(CHAMONIX, 35_000, -28_000);
+    const { east, north } = localEastNorth(CHAMONIX, p);
+    expect(east).toBeCloseTo(35_000, 4);
+    expect(north).toBeCloseTo(-28_000, 4);
+  });
+
+  it("rend l'origine pour un déplacement nul", () => {
+    const p = localToLatLon(CHAMONIX, 0, 0);
+    expect(p.lat).toBeCloseTo(CHAMONIX.lat, 12);
+    expect(p.lon).toBeCloseTo(CHAMONIX.lon, 12);
   });
 });

@@ -6,7 +6,11 @@
 export const fr = {
   appName: 'Cimes',
   tagline: 'Identifiez les sommets autour de vous',
-  underConstruction: 'Panorama 3D en construction — phase 1 du plan.',
+  panorama: {
+    loadingTerrain: 'Chargement du relief…',
+    loadError: 'Impossible de charger le relief. Vérifiez la connexion puis réessayez.',
+    retry: 'Réessayer',
+  },
   attributions: {
     intro: 'Données :',
     osm: '© contributeurs OpenStreetMap',
@@ -14,3 +18,12 @@ export const fr = {
     basemap: 'Fond de carte OpenFreeMap',
   },
 } as const;
+
+/** Points cardinaux (8 secteurs) pour l'affichage du cap. */
+export const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'] as const;
+
+/** Nom du secteur cardinal du cap donné (degrés). */
+export function cardinalFor(headingDeg: number): string {
+  const index = Math.round((((headingDeg % 360) + 360) % 360) / 45) % 8;
+  return CARDINALS[index]!;
+}

@@ -98,6 +98,17 @@ export function localEastNorth(origin: LatLon, point: LatLon): { east: number; n
 }
 
 /**
+ * Inverse de `localEastNorth` : le point situé à (east, north) mètres du repère
+ * tangent centré sur `origin`. Exactement réciproque (même latitude moyenne).
+ */
+export function localToLatLon(origin: LatLon, east: number, north: number): LatLon {
+  const lat = origin.lat + radToDeg(north / EARTH_RADIUS_M);
+  const midLat = degToRad((origin.lat + lat) / 2);
+  const lon = origin.lon + radToDeg(east / (EARTH_RADIUS_M * Math.cos(midLat)));
+  return { lat, lon: normalizeLon(lon) };
+}
+
+/**
  * Chute apparente (m) due à la courbure terrestre corrigée de la réfraction,
  * à `distanceM` mètres de l'observateur. C'est de combien un objet « descend »
  * sous le plan tangent local.
