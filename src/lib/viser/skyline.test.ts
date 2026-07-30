@@ -137,6 +137,29 @@ describe('matchSkyline', () => {
     expect(match!.maeDeg).toBeLessThan(0.6);
   });
 
+  it('estime aussi le FOV réel de la caméra depuis une hypothèse fausse', () => {
+    // Image « prise » avec une optique à 68° de FOV vertical…
+    const detected = renderDetected(120, 90, 68);
+    // …mais l'app suppose 55°. La recherche à trois dimensions doit tout retrouver.
+    const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+      fovSearch: {},
+    });
+    expect(match).not.toBeNull();
+    expect(Math.abs(match!.fovDeg - 68)).toBeLessThanOrEqual(2);
+    expect(Math.abs(match!.headingOffsetDeg - 7)).toBeLessThanOrEqual(1);
+    expect(Math.abs(match!.pitchOffsetDeg - -1)).toBeLessThanOrEqual(1);
+    expect(match!.maeDeg).toBeLessThan(0.8);
+  });
+
+  it('garde le FOV courant sans estimation demandée', () => {
+    const detected = renderDetected(120, 90, 55);
+    const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+    });
+    expect(match!.fovDeg).toBe(55);
+  });
+
   it('refuse une détection trop peu confiante', () => {
     const detected = renderDetected(60, 45, 55);
     detected.confidence.fill(0);
