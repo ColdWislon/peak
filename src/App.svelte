@@ -3,6 +3,7 @@
   import PanoramaView from './components/PanoramaView.svelte';
   import SearchBar from './components/SearchBar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
+  import ViserView from './components/ViserView.svelte';
   import type { LatLon } from './lib/geo';
   import { fr } from './lib/i18n/fr';
   import { parseMode, parseViewpoint, viewpointToSearch, type ViewMode } from './lib/viewpoint/url';
@@ -48,17 +49,22 @@
       <button class:active={mode === 'carte'} onclick={() => switchMode('carte')}>
         {fr.modes.map}
       </button>
+      <button class:active={mode === 'viser'} onclick={() => switchMode('viser')}>
+        {fr.modes.viser}
+      </button>
     </nav>
     <SettingsPanel />
   </header>
 
   {#if mode === 'panorama'}
     <PanoramaView {viewpoint} />
-  {:else}
+  {:else if mode === 'carte'}
     <MapView {viewpoint} onteleport={teleportToPanorama} />
+  {:else}
+    <ViserView {viewpoint} />
   {/if}
 
-  {#if mode === 'panorama'}
+  {#if mode !== 'carte'}
     <footer>
       {fr.attributions.intro}
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">

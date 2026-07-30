@@ -33,6 +33,15 @@ export const fr = {
   modes: {
     panorama: 'Panorama',
     map: 'Carte',
+    viser: 'Viser',
+  },
+  viser: {
+    intro:
+      'Pointez votre téléphone vers la montagne : Cimes superpose les noms des sommets visibles sur l’image de la caméra. Autorisez la caméra et les capteurs de mouvement.',
+    start: 'Activer caméra et capteurs',
+    cameraError: 'Caméra ou capteurs refusés — vérifiez les autorisations du navigateur.',
+    calibrateHint: 'Étiquettes décalées ? Glissez horizontalement pour recaler la boussole',
+    dragHint: 'Capteurs indisponibles : glissez pour viser',
   },
   settings: {
     title: 'Réglages',

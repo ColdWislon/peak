@@ -25,6 +25,11 @@ a été validée explicitement.
 | 13  | Style         | Sombre alpin : UI quasi-noir bleuté, accent bleu glacier, terrain/ciel lumineux, étiquettes blanches                                                       |
 | 14  | Licence       | **MIT** (le code) ; attributions ODbL/OSM et tuiles affichées dans l'app                                                                                   |
 
+> **Amendement (2026-07-30, validé)** — décision n° 2 : la phase 4 AR est finalement livrée
+> **en web, dans cette app** (mode « Viser » : caméra + capteurs d'orientation + pipeline
+> visibilité/étiquettes existant, calibration boussole au doigt, repli glissé sans capteurs).
+> L'app native reste une option future si la précision des capteurs web s'avère insuffisante.
+
 Arbitrages par défaut (modifiables à tout moment) :
 
 - Point de vue par défaut : Chamonix, face au massif du Mont-Blanc (45.9237, 6.8694).

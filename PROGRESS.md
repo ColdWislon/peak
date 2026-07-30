@@ -78,4 +78,11 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 - [x] Étiquettes : nom `name:fr` vs local selon préférence (réglage « Noms des sommets »,
       appliqué au panorama et à la carte sans rechargement) ; proéminence OSM parsée et
       intégrée au score de priorité (altitude + 2 × proéminence, sélection et étiquetage)
-- [ ] Phase 4 : app native AR (hors de ce dépôt)
+- [x] Phase 4 : AR livrée en web (amendement de la décision n° 2, cf. PLAN.md) — mode
+      « Viser » : caméra `getUserMedia` + orientation appareil (matrice W3C ZXY → cap/assiette,
+      module pur testé ; `webkitCompassHeading` iOS géré), étiquettes des sommets visibles
+      par-dessus, recalage boussole au doigt, repli « glisser pour viser » sans capteurs,
+      permission iOS demandée au geste. Vérifié en prod : caméra factice + orientations
+      synthétiques (sud → Mont Blanc, est → Aiguille Verte, recalage +7°). Piège corrigé :
+      `setPointerCapture` sur un conteneur retarge les `click` — ignorer les appuis sur boutons.
+      (App native : option future si la précision des capteurs web déçoit.)

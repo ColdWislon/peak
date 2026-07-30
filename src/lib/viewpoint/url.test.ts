@@ -21,10 +21,15 @@ describe('parseViewpoint', () => {
 });
 
 describe('parseMode', () => {
-  it('lit le mode carte et retombe sur panorama sinon', () => {
+  it('lit les modes carte et viser, retombe sur panorama sinon', () => {
     expect(parseMode('?lat=1&lon=2&mode=carte')).toBe('carte');
+    expect(parseMode('?lat=1&lon=2&mode=viser')).toBe('viser');
     expect(parseMode('?lat=1&lon=2')).toBe('panorama');
     expect(parseMode('?mode=nimporte')).toBe('panorama');
+  });
+
+  it('sérialise le mode viser', () => {
+    expect(parseMode(viewpointToSearch({ lat: 1, lon: 2 }, 'viser'))).toBe('viser');
   });
 
   it('boucle avec viewpointToSearch', () => {

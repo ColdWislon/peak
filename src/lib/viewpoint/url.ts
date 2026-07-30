@@ -5,7 +5,7 @@ import type { LatLon } from '../geo';
  * une carte se partage en copiant l'adresse. Arrondi à 5 décimales (~1 m).
  */
 
-export type ViewMode = 'panorama' | 'carte';
+export type ViewMode = 'panorama' | 'carte' | 'viser';
 
 export function parseViewpoint(search: string): LatLon | null {
   const params = new URLSearchParams(search);
@@ -17,11 +17,12 @@ export function parseViewpoint(search: string): LatLon | null {
 }
 
 export function parseMode(search: string): ViewMode {
-  return new URLSearchParams(search).get('mode') === 'carte' ? 'carte' : 'panorama';
+  const mode = new URLSearchParams(search).get('mode');
+  return mode === 'carte' || mode === 'viser' ? mode : 'panorama';
 }
 
 export function viewpointToSearch(viewpoint: LatLon, mode: ViewMode = 'panorama'): string {
   const lat = viewpoint.lat.toFixed(5);
   const lon = viewpoint.lon.toFixed(5);
-  return `?lat=${lat}&lon=${lon}${mode === 'carte' ? '&mode=carte' : ''}`;
+  return `?lat=${lat}&lon=${lon}${mode === 'panorama' ? '' : `&mode=${mode}`}`;
 }
