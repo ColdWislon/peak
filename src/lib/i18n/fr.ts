@@ -11,6 +11,13 @@ export const fr = {
     loadError: 'Impossible de charger le relief. Vérifiez la connexion puis réessayez.',
     retry: 'Réessayer',
   },
+  peaks: {
+    searching: 'Recherche des sommets…',
+    unavailable: 'Sommets indisponibles (Overpass ne répond pas)',
+    retry: 'Réessayer',
+    none: 'Aucun sommet nommé à moins de 75 km',
+    noneVisible: 'Aucun sommet visible depuis ce point de vue',
+  },
   search: {
     placeholder: 'Rechercher un lieu…',
     locate: 'Me géolocaliser',

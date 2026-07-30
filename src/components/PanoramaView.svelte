@@ -33,6 +33,8 @@
   let heading = $state(0);
   let labels = $state<PlacedLabel[]>([]);
   let selected = $state<PlacedLabel | null>(null);
+  /** État de la chaîne sommets : l'app dit toujours pourquoi il n'y a pas d'étiquettes. */
+  let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
 
   let context: PanoramaContext | undefined;
   let peaks: Peak[] = [];
@@ -58,15 +60,22 @@
   function onSights(sights: PeakSight[]): void {
     if (!context) return;
     candidates = toCandidates(sights, peaks, context.eyeElevation);
+    peaksStatus = candidates.length > 0 ? 'ok' : 'noneVisible';
     relayout();
   }
 
   async function loadPeaks(): Promise<void> {
     if (!context || !worker) return;
+    peaksStatus = 'searching';
     try {
       peaks = topPeaks(await peaksAround(context.viewpoint, PEAKS_RADIUS_M), PEAKS_LIMIT);
     } catch {
       // Overpass indisponible : le panorama reste utilisable sans étiquettes.
+      peaksStatus = 'error';
+      return;
+    }
+    if (peaks.length === 0) {
+      peaksStatus = 'empty';
       return;
     }
     const request: VisibilityRequest = {
@@ -88,6 +97,7 @@
     labels = [];
     selected = null;
     candidates = [];
+    peaksStatus = 'idle';
     // Un worker neuf par chargement : les visibilités de l'ancien point de
     // vue encore en vol sont abandonnées avec lui.
     worker?.terminate();
@@ -95,6 +105,9 @@
       type: 'module',
     });
     worker.onmessage = (event: MessageEvent<PeakSight[]>) => onSights(event.data);
+    worker.onerror = () => {
+      peaksStatus = 'error';
+    };
     try {
       // Copie simple : le prop est un proxy $state, inclonable par postMessage
       // et coûteux à lire dans les boucles d'échantillonnage du moteur.
@@ -141,6 +154,22 @@
   <div class="hud" aria-live="off">
     {Math.round(heading)}° · {cardinalFor(heading)}
   </div>
+
+  {#if !loading && !failed && peaksStatus !== 'ok' && peaksStatus !== 'idle'}
+    <div class="peaks-status" role="status">
+      {#if peaksStatus === 'searching'}
+        {fr.peaks.searching}
+      {:else if peaksStatus === 'error'}
+        {fr.peaks.unavailable}
+        <!-- Relance complète : les tampons transférés au worker ne sont pas réutilisables. -->
+        <button onclick={() => void load()}>{fr.peaks.retry}</button>
+      {:else if peaksStatus === 'empty'}
+        {fr.peaks.none}
+      {:else}
+        {fr.peaks.noneVisible}
+      {/if}
+    </div>
+  {/if}
 
   {#if selected}
     <aside class="card">
@@ -200,6 +229,37 @@
     font-variant-numeric: tabular-nums;
     font-size: 0.9rem;
     pointer-events: none;
+  }
+
+  .peaks-status {
+    position: absolute;
+    top: 3.1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    color: var(--muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .peaks-status button {
+    padding: 0.15rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--accent);
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .peaks-status button:hover {
+    border-color: var(--accent);
   }
 
   .card {
