@@ -69,8 +69,11 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 
 ## Backlog (après les 3 phases du plan)
 
-- [ ] Réglages (qualité de rendu, unités) — reporté de la phase 3
-- [ ] Icônes PWA en PNG 192/512 (maskable) en plus du SVG
+- [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
+      localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,
+      rechargement du terrain), unités métriques/impériales dans étiquettes, fiches et
+      marqueurs (vérifié sur build de prod : bascule en direct + persistance)
+- [x] Icônes PWA en PNG 192/512 + variante maskable (générées depuis le SVG via Chromium)
 - [ ] Vérifier hillshade/terrain MapLibre sur l'app déployée (angle mort SwiftShader du bac à sable)
 - [ ] Étiquettes : nom `name:fr` vs local selon préférence ; proéminence quand disponible
 - [ ] Phase 4 : app native AR (hors de ce dépôt)

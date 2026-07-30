@@ -8,6 +8,7 @@
   import { roundRadiusM, visibleRadiusM } from '../lib/map';
   import { topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
+  import { settings } from '../lib/settings/store.svelte';
   import { TERRARIUM_TILE_TEMPLATE } from '../lib/terrain/tiles';
 
   /** Style vectoriel OpenFreeMap (gratuit, sans clé — décision n° 4 du PLAN.md). */
@@ -40,7 +41,7 @@
     if (peak.elevation !== null) {
       const ele = document.createElement('span');
       ele.className = 'peak-marker-ele';
-      ele.textContent = formatElevation(peak.elevation);
+      ele.textContent = formatElevation(peak.elevation, settings.units);
       el.append(ele);
     }
     el.addEventListener('click', (event) => {
@@ -139,6 +140,18 @@
     map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 11) });
   });
 
+  // Les marqueurs sont du DOM construit à la main : on les régénère quand
+  // les unités changent (le premier passage est couvert par l'événement load).
+  let unitsInitialized = false;
+  $effect(() => {
+    void settings.units;
+    if (!unitsInitialized) {
+      unitsInitialized = true;
+      return;
+    }
+    if (map) void refreshPeaks();
+  });
+
   function panoramaHere(): void {
     if (!map) return;
     const center = map.getCenter();
@@ -159,7 +172,8 @@
       <h2>{selected.name}</h2>
       <p>
         {#if selected.elevation !== null}
-          {fr.peakCard.elevation} : <strong>{formatElevation(selected.elevation)}</strong>
+          {fr.peakCard.elevation} :
+          <strong>{formatElevation(selected.elevation, settings.units)}</strong>
         {/if}
       </p>
       <button

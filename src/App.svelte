@@ -2,6 +2,7 @@
   import MapView from './components/MapView.svelte';
   import PanoramaView from './components/PanoramaView.svelte';
   import SearchBar from './components/SearchBar.svelte';
+  import SettingsPanel from './components/SettingsPanel.svelte';
   import type { LatLon } from './lib/geo';
   import { fr } from './lib/i18n/fr';
   import { parseMode, parseViewpoint, viewpointToSearch, type ViewMode } from './lib/viewpoint/url';
@@ -48,6 +49,7 @@
         {fr.modes.map}
       </button>
     </nav>
+    <SettingsPanel />
   </header>
 
   {#if mode === 'panorama'}

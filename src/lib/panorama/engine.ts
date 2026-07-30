@@ -3,6 +3,7 @@ import { degToRad, type LatLon } from '../geo';
 import { tileBlockAround, tileCount } from '../terrain/blocks';
 import { serializeGeoHeightField, type GeoHeightFieldData } from '../terrain/heightField';
 import { loadBlockHeightField } from '../terrain/loader';
+import type { RenderQuality } from '../settings';
 import { PanoramaControls, type ViewState } from './controls';
 import type { PolarMeshOptions } from './mesh';
 import type { TerrainMeshRequest, TerrainMeshResponse } from './protocol';
@@ -45,7 +46,7 @@ export class PanoramaEngine {
   private readonly controls: PanoramaControls;
   private readonly observer: ResizeObserver;
   private readonly meshWorker: Worker;
-  private readonly meshOptions: PolarMeshOptions;
+  private meshOptions: PolarMeshOptions = { maxRadiusM: MESH_MAX_RADIUS_M };
   private pendingMesh = new Map<number, (response: TerrainMeshResponse) => void>();
   private nextRequestId = 1;
   private terrain: THREE.Mesh | null = null;
@@ -62,8 +63,6 @@ export class PanoramaEngine {
       antialias: true,
       logarithmicDepthBuffer: true,
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
     this.scene = new THREE.Scene();
     this.scene.background = HORIZON_COLOR;
     this.scene.fog = new THREE.Fog(HORIZON_COLOR, 25_000, 150_000);
@@ -77,13 +76,7 @@ export class PanoramaEngine {
     this.camera = new THREE.PerspectiveCamera(this.view.fov, 1, 15, 400_000);
     this.camera.rotation.order = 'YXZ';
 
-    // Écrans tactiles : grille allégée (~45 % de triangles en moins).
-    const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
-    this.meshOptions = {
-      azimuthSegments: coarse ? 540 : 720,
-      radialSegments: coarse ? 130 : 160,
-      maxRadiusM: MESH_MAX_RADIUS_M,
-    };
+    this.setQuality('auto');
 
     this.meshWorker = new Worker(new URL('../../workers/terrain.ts', import.meta.url), {
       type: 'module',
@@ -100,6 +93,23 @@ export class PanoramaEngine {
     this.observer.observe(canvas.parentElement ?? canvas);
     this.resize();
     this.applyView();
+  }
+
+  /**
+   * Applique une qualité de rendu (réglage utilisateur) : résolution d'écran
+   * immédiate, densité du maillage au prochain load(). « auto » allège sur
+   * écrans tactiles, « eco » allège partout, « elevee » force le plein détail.
+   */
+  setQuality(quality: RenderQuality): void {
+    const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+    const eco = quality === 'eco' || (quality === 'auto' && coarse);
+    this.meshOptions = {
+      azimuthSegments: eco ? 480 : 720,
+      radialSegments: eco ? 120 : 160,
+      maxRadiusM: MESH_MAX_RADIUS_M,
+    };
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, eco ? 1.5 : 2));
+    this.scheduleRender();
   }
 
   /** Charge le relief autour du point de vue et (re)construit le terrain. */
