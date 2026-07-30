@@ -23,6 +23,14 @@ export const fr = {
     distance: 'Distance',
     close: 'Fermer',
   },
+  modes: {
+    panorama: 'Panorama',
+    map: 'Carte',
+  },
+  map: {
+    panoramaHere: 'Panorama ici',
+    seePanorama: 'Voir le panorama d’ici',
+  },
   attributions: {
     intro: 'Données :',
     osm: '© contributeurs OpenStreetMap',

@@ -54,7 +54,11 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 
 ## Phase 2 — carte 3D (détail à affiner en fin de phase 1)
 
-- [ ] MapLibre GL + terrain terrarium + marqueurs de sommets + fiches + lien panorama ↔ carte
+- [x] MapLibre GL + terrain terrarium + marqueurs de sommets + fiches + lien panorama ↔ carte
+      (bascule Panorama/Carte dans l'en-tête, mode dans l'URL `&mode=carte`, marqueurs DOM
+      rafraîchis au déplacement avec anti-course, fiche → « Voir le panorama d'ici », FAB
+      « Panorama ici » ; à re-vérifier sur l'app déployée : rendu hillshade/terrain 3D,
+      invisible sous SwiftShader headless bien que les tuiles se chargent sans erreur)
 
 ## Phase 3 — PWA
 

@@ -1,9 +1,11 @@
 import type { LatLon } from '../geo';
 
 /**
- * Le point de vue vit dans l'URL (`?lat=…&lon=…`) : un panorama se partage
- * en copiant l'adresse. Arrondi à 5 décimales (~1 m).
+ * L'état partageable vit dans l'URL (`?lat=…&lon=…&mode=…`) : un panorama ou
+ * une carte se partage en copiant l'adresse. Arrondi à 5 décimales (~1 m).
  */
+
+export type ViewMode = 'panorama' | 'carte';
 
 export function parseViewpoint(search: string): LatLon | null {
   const params = new URLSearchParams(search);
@@ -14,8 +16,12 @@ export function parseViewpoint(search: string): LatLon | null {
   return { lat, lon };
 }
 
-export function viewpointToSearch(viewpoint: LatLon): string {
+export function parseMode(search: string): ViewMode {
+  return new URLSearchParams(search).get('mode') === 'carte' ? 'carte' : 'panorama';
+}
+
+export function viewpointToSearch(viewpoint: LatLon, mode: ViewMode = 'panorama'): string {
   const lat = viewpoint.lat.toFixed(5);
   const lon = viewpoint.lon.toFixed(5);
-  return `?lat=${lat}&lon=${lon}`;
+  return `?lat=${lat}&lon=${lon}${mode === 'carte' ? '&mode=carte' : ''}`;
 }

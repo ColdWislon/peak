@@ -12,9 +12,15 @@ export const WEB_MERCATOR_RADIUS_M = 6_378_137;
 /** Latitude maximale représentable en WebMercator. */
 export const MAX_MERCATOR_LAT = 85.05112878;
 
-/** Gabarit d'URL des tuiles d'élévation terrarium (AWS Terrain Tiles, sans clé). */
+/** Gabarit d'URL des tuiles d'élévation terrarium, au format MapLibre. */
+export const TERRARIUM_TILE_TEMPLATE =
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
+/** URL d'une tuile d'élévation terrarium (AWS Terrain Tiles, sans clé). */
 export function terrariumTileUrl(z: number, x: number, y: number): string {
-  return `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+  return TERRARIUM_TILE_TEMPLATE.replace('{z}', String(z))
+    .replace('{x}', String(x))
+    .replace('{y}', String(y));
 }
 
 /** Abscisse de tuile (fractionnaire) pour une longitude au zoom donné. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseViewpoint, viewpointToSearch } from './url';
+import { parseMode, parseViewpoint, viewpointToSearch } from './url';
 
 describe('parseViewpoint', () => {
   it('lit lat/lon valides', () => {
@@ -17,5 +17,20 @@ describe('parseViewpoint', () => {
   it('boucle avec viewpointToSearch', () => {
     const vp = { lat: 45.9237, lon: 6.8694 };
     expect(parseViewpoint(viewpointToSearch(vp))).toEqual(vp);
+  });
+});
+
+describe('parseMode', () => {
+  it('lit le mode carte et retombe sur panorama sinon', () => {
+    expect(parseMode('?lat=1&lon=2&mode=carte')).toBe('carte');
+    expect(parseMode('?lat=1&lon=2')).toBe('panorama');
+    expect(parseMode('?mode=nimporte')).toBe('panorama');
+  });
+
+  it('boucle avec viewpointToSearch', () => {
+    const vp = { lat: 45.9237, lon: 6.8694 };
+    expect(parseMode(viewpointToSearch(vp, 'carte'))).toBe('carte');
+    expect(parseMode(viewpointToSearch(vp))).toBe('panorama');
+    expect(parseViewpoint(viewpointToSearch(vp, 'carte'))).toEqual(vp);
   });
 });

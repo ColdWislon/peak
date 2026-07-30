@@ -13,6 +13,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "maplibre-gl": "^6.0.0",
     "three": "^0.185.1"
   },
   "devDependencies": {
