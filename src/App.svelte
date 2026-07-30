@@ -1,17 +1,29 @@
 <script lang="ts">
   import PanoramaView from './components/PanoramaView.svelte';
+  import SearchBar from './components/SearchBar.svelte';
+  import type { LatLon } from './lib/geo';
   import { fr } from './lib/i18n/fr';
+  import { parseViewpoint, viewpointToSearch } from './lib/viewpoint/url';
 
   /** Point de vue par défaut : Chamonix, face au massif du Mont-Blanc (PLAN.md). */
   const DEFAULT_VIEWPOINT = { lat: 45.9237, lon: 6.8694 };
+
+  let viewpoint = $state<LatLon>(parseViewpoint(location.search) ?? DEFAULT_VIEWPOINT);
+
+  /** Téléporte le panorama et rend l'URL partageable. */
+  function teleport(next: LatLon): void {
+    viewpoint = next;
+    history.replaceState(null, '', viewpointToSearch(next));
+  }
 </script>
 
 <div class="app">
   <header>
     <h1>{fr.appName}</h1>
+    <SearchBar onpick={teleport} />
   </header>
 
-  <PanoramaView viewpoint={DEFAULT_VIEWPOINT} />
+  <PanoramaView {viewpoint} />
 
   <footer>
     {fr.attributions.intro}
@@ -45,7 +57,11 @@
     position: absolute;
     top: 0.65rem;
     left: 0.9rem;
-    z-index: 2;
+    right: 0.9rem;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
     pointer-events: none;
   }
 

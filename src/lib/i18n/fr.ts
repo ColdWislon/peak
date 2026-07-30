@@ -11,6 +11,13 @@ export const fr = {
     loadError: 'Impossible de charger le relief. Vérifiez la connexion puis réessayez.',
     retry: 'Réessayer',
   },
+  search: {
+    placeholder: 'Rechercher un lieu…',
+    locate: 'Me géolocaliser',
+    noResults: 'Aucun résultat',
+    error: 'Recherche indisponible pour le moment',
+    geolocError: 'Position introuvable — vérifiez les autorisations',
+  },
   peakCard: {
     elevation: 'Altitude',
     distance: 'Distance',

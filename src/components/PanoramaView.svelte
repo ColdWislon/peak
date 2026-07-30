@@ -88,8 +88,18 @@
     labels = [];
     selected = null;
     candidates = [];
+    // Un worker neuf par chargement : les visibilités de l'ancien point de
+    // vue encore en vol sont abandonnées avec lui.
+    worker?.terminate();
+    worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
+      type: 'module',
+    });
+    worker.onmessage = (event: MessageEvent<PeakSight[]>) => onSights(event.data);
     try {
-      context = await engine.load(viewpoint, (done, total) => {
+      // Copie simple : le prop est un proxy $state, inclonable par postMessage
+      // et coûteux à lire dans les boucles d'échantillonnage du moteur.
+      const plain = { lat: viewpoint.lat, lon: viewpoint.lon };
+      context = await engine.load(plain, (done, total) => {
         progress = done / Math.max(1, total);
       });
     } catch {
@@ -108,16 +118,18 @@
     });
     heading = engine.view.heading;
 
-    worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
-      type: 'module',
-    });
-    worker.onmessage = (event: MessageEvent<PeakSight[]>) => onSights(event.data);
-
-    void load();
     return () => {
       worker?.terminate();
       engine?.dispose();
     };
+  });
+
+  // Premier chargement et rechargements : suit le point de vue (téléportation).
+  $effect(() => {
+    void viewpoint.lat;
+    void viewpoint.lon;
+    if (!engine) return;
+    void load();
   });
 </script>
 

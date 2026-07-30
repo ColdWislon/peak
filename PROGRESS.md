@@ -30,7 +30,9 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 - [x] 1.8 Module `labels` : projection 3D→2D, priorisation, anti-chevauchement + tests ; étiquettes en overlay DOM
       (+ mini-fiche sommet au clic, vérifié visuellement avec fixture Overpass — Mont Blanc,
       Aiguille du Midi, etc. correctement ancrés)
-- [ ] 1.9 Géolocalisation + recherche Nominatim + état du point de vue dans l'URL + mini-fiche sommet
+- [x] 1.9 Géolocalisation + recherche Nominatim + état du point de vue dans l'URL + mini-fiche sommet
+      (vérifié : téléportation Chamonix → Zermatt avec fixtures, Cervin étiqueté à 8,6 km ;
+      piège corrigé : ne jamais passer un proxy $state à postMessage/au moteur — copier)
 - [ ] 1.10 Performances mobiles (budget triangles, travail en workers) + polish visuel
 
 ## Notes environnement (sessions Claude Code distantes)
