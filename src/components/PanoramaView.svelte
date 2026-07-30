@@ -14,7 +14,11 @@
   import { topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
   import { settings } from '../lib/settings/store.svelte';
-  import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
+  import type {
+    PeakSight,
+    VisibilityRequest,
+    VisibilityResponse,
+  } from '../lib/visibility/protocol';
   import PeakLabels from './PeakLabels.svelte';
 
   /** Rayon de recherche des sommets (m) — au-delà, la brume les mange. */
@@ -108,7 +112,7 @@
     worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
       type: 'module',
     });
-    worker.onmessage = (event: MessageEvent<PeakSight[]>) => onSights(event.data);
+    worker.onmessage = (event: MessageEvent<VisibilityResponse>) => onSights(event.data.sights);
     worker.onerror = () => {
       peaksStatus = 'error';
     };

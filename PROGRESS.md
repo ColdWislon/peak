@@ -69,6 +69,16 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 
 ## Backlog (après les 3 phases du plan)
 
+- [x] Recalage automatique sur l'horizon (mode Viser) : profil d'horizon théorique calculé
+      par le worker de visibilité (marche de rayon 360°), détection ciel→terrain dans l'image
+      caméra réduite (contraste par sommes préfixes, sans IA), mise en correspondance
+      cap+assiette par recherche sur grille avec régularisation d'assiette (l'ambiguïté
+      cap/assiette d'un horizon rectiligne est départagée en faveur de la gravité). Bouton
+      « Recaler sur l'horizon », appliqué seulement si l'alignement est net (mae ≤ 1,5°),
+      sinon message et recalage manuel. Testé : +7°/−1° retrouvés à ±0,5° sur horizon
+      synthétique ; échec propre vérifié en prod sur image sans horizon. Restent le terrain
+      réel (votre téléphone) et, si concluant, un suivi continu en option.
+
 - [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
       localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,
       rechargement du terrain), unités métriques/impériales dans étiquettes, fiches et
