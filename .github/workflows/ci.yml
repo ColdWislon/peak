@@ -42,6 +42,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
+      - name: Activer GitHub Pages si nécessaire
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Déployer sur GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
