@@ -78,6 +78,10 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       sinon message et recalage manuel. Testé : +7°/−1° retrouvés à ±0,5° sur horizon
       synthétique ; échec propre vérifié en prod sur image sans horizon. Restent le terrain
       réel (votre téléphone) et, si concluant, un suivi continu en option.
+- [x] Horizon calculé affiché dans le mode Viser : polyligne SVG du profil théorique,
+      projetée avec les mêmes conventions de caméra que les étiquettes (`skylineScreenPoints`,
+      testé) — repère visuel pour le recalage manuel et lecture directe de ce que « pense »
+      le recalage automatique.
 
 - [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
       localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,

@@ -10,7 +10,7 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { iosCompassToAlpha, orientationToAim } from '../lib/viser/orientation';
-  import { detectImageSkyline, matchSkyline } from '../lib/viser/skyline';
+  import { detectImageSkyline, matchSkyline, skylineScreenPoints } from '../lib/viser/skyline';
   import type {
     PeakSight,
     VisibilityRequest,
@@ -52,6 +52,9 @@
   let headingOffset = 0;
   let pitchOffset = 0;
   let demSkyline = $state<Float32Array | null>(null);
+  /** Polyligne SVG de l'horizon calculé (points « x,y … ») et sa taille de repère. */
+  let horizonPoints = $state('');
+  let viewSize = $state({ w: 1, h: 1 });
   let calibrating = $state(false);
   let calibMessage = $state<string | null>(null);
   let calibTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,13 +69,22 @@
       if (!container) return;
       const headingNow = normalizeBearing(aim.heading + headingOffset);
       heading = headingNow;
-      labels = placeLabels(candidates, {
+      const view = {
         headingDeg: headingNow,
         pitchDeg: aim.pitch + pitchOffset,
         fovDeg: FOV_DEG,
         width: container.clientWidth,
         height: container.clientHeight,
-      });
+      };
+      labels = placeLabels(candidates, view);
+      if (demSkyline) {
+        horizonPoints = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view)
+          .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+          .join(' ');
+        viewSize = { w: view.width, h: view.height };
+      } else {
+        horizonPoints = '';
+      }
     });
   }
 
@@ -282,6 +294,17 @@
   <!-- svelte-ignore a11y_media_has_caption -->
   <video bind:this={video} playsinline muted></video>
 
+  {#if horizonPoints && phase === 'running'}
+    <svg
+      class="horizon"
+      viewBox={`0 0 ${viewSize.w} ${viewSize.h}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <polyline points={horizonPoints} />
+    </svg>
+  {/if}
+
   <PeakLabels {labels} />
 
   {#if phase === 'running'}
@@ -354,6 +377,23 @@
     font-variant-numeric: tabular-nums;
     font-size: 0.9rem;
     pointer-events: none;
+  }
+
+  .horizon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .horizon polyline {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    opacity: 0.85;
+    filter: drop-shadow(0 0 3px rgb(0 0 0 / 60%));
   }
 
   .calibrate {
