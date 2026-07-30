@@ -19,7 +19,8 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 
 - [x] 1.1 Module `geo` : géodésie pure (distances, caps, projection locale, courbure/réfraction) + tests
 - [x] 1.2 Module `terrain` : maths des tuiles slippy + décodage terrarium + HeightField bilinéaire + tests
-- [ ] 1.3 Chargeur de tuiles navigateur (fetch + ImageBitmap) et assemblage multi-tuiles en heightfield
+- [x] 1.3 Chargeur de tuiles navigateur (fetch + ImageBitmap) et assemblage multi-tuiles en heightfield
+      (cache mémoire 512 tuiles ; cache IndexedDB remis à la phase 3)
 - [ ] 1.4 Moteur panorama Three.js : maillage LOD en anneaux, caméra au sol, contrôles azimut/élévation
 - [ ] 1.5 Ciel + brume de distance + courbure terrestre appliquée au maillage
 - [ ] 1.6 Module `peaks` : client Overpass + parsing + cache IndexedDB + tests
