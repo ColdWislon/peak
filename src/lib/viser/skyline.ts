@@ -1,4 +1,5 @@
 import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
+import { projectToScreen, type ViewGeometry } from '../labels';
 import type { ElevationSampler } from '../visibility';
 
 /**
@@ -89,6 +90,35 @@ export function detectImageSkyline(
     confidence[x] = Math.max(0, Math.min(1, bestContrast / 96));
   }
   return { rows, confidence, width, height };
+}
+
+/**
+ * Projette le profil d'horizon théorique sur l'écran (mêmes conventions de
+ * caméra que les étiquettes) : une liste de points gauche → droite, prête à
+ * devenir une polyligne SVG. Déborde légèrement du champ pour ne pas laisser
+ * de trous aux bords pendant les rotations.
+ */
+export function skylineScreenPoints(
+  demSkyline: Float32Array,
+  demStepDeg: number,
+  view: ViewGeometry,
+): Array<{ x: number; y: number }> {
+  const tanV = Math.tan(degToRad(view.fovDeg) / 2);
+  const tanH = tanV * (view.width / Math.max(1, view.height));
+  const halfFovHDeg = radToDeg(Math.atan(tanH));
+  const points: Array<{ x: number; y: number }> = [];
+
+  for (
+    let azRel = -halfFovHDeg - 2 * demStepDeg;
+    azRel <= halfFovHDeg + 2 * demStepDeg;
+    azRel += demStepDeg
+  ) {
+    const azimuth = view.headingDeg + azRel;
+    const elevRad = degToRad(demAngleDeg(demSkyline, azimuth, demStepDeg));
+    const p = projectToScreen(azimuth, elevRad, view);
+    if (!p.behind) points.push({ x: p.x, y: p.y });
+  }
+  return points;
 }
 
 export interface SkylineView {

@@ -6,6 +6,7 @@ import {
   detectImageSkyline,
   matchSkyline,
   pixelToAngles,
+  skylineScreenPoints,
   type DetectedSkyline,
 } from './skyline';
 
@@ -54,6 +55,36 @@ describe('detectImageSkyline', () => {
     const flat = new Uint8ClampedArray(w * h * 4).fill(128);
     const detected = detectImageSkyline(flat, w, h);
     for (let x = 0; x < w; x++) expect(detected.confidence[x]!).toBeLessThan(0.1);
+  });
+});
+
+describe('skylineScreenPoints', () => {
+  const view = { headingDeg: 0, pitchDeg: 0, fovDeg: 60, width: 1000, height: 1000 };
+
+  it('projette un horizon plat au centre vertical, points ordonnés', () => {
+    const flat = new Float32Array(720);
+    const points = skylineScreenPoints(flat, 0.5, view);
+    expect(points.length).toBeGreaterThan(50);
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i]!.x).toBeGreaterThan(points[i - 1]!.x);
+    }
+    const center = points.reduce((best, p) =>
+      Math.abs(p.x - 500) < Math.abs(best.x - 500) ? p : best,
+    );
+    expect(Math.abs(center.y - 500)).toBeLessThan(2);
+  });
+
+  it('monte à l’écran là où le relief est haut', () => {
+    const dem = new Float32Array(720);
+    for (let i = 0; i < 720; i++) {
+      const az = i * 0.5;
+      if (az < 20 || az > 340) dem[i] = degToRad(10); // bosse autour du nord
+    }
+    const points = skylineScreenPoints(dem, 0.5, view);
+    const center = points.reduce((best, p) =>
+      Math.abs(p.x - 500) < Math.abs(best.x - 500) ? p : best,
+    );
+    expect(center.y).toBeLessThan(400);
   });
 });
 
