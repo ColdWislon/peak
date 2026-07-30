@@ -25,7 +25,7 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 - [x] 1.5 Ciel + brume de distance + courbure terrestre appliquée au maillage
       (reste pour 1.10 : ciel en dégradé, fondu entre DEM proche z12 et lointain z10 — fine
       couture visible vers 24 km ; vérifié par captures Playwright, cf. « Notes environnement »)
-- [ ] 1.6 Module `peaks` : client Overpass + parsing + cache IndexedDB + tests
+- [x] 1.6 Module `peaks` : client Overpass + parsing + cache IndexedDB + tests
 - [ ] 1.7 Module `visibility` : ligne de vue par raymarching sur heightfield (Web Worker) + tests
 - [ ] 1.8 Module `labels` : projection 3D→2D, priorisation, anti-chevauchement + tests ; étiquettes en overlay DOM
 - [ ] 1.9 Géolocalisation + recherche Nominatim + état du point de vue dans l'URL + mini-fiche sommet
