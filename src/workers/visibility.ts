@@ -1,8 +1,9 @@
 import { localEastNorth } from '../lib/geo';
 import { makeBlendedSampler } from '../lib/panorama/sampler';
 import { deserializeGeoHeightField } from '../lib/terrain/heightField';
+import { computeDemSkyline } from '../lib/viser/skyline';
 import { isVisible } from '../lib/visibility';
-import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
+import type { PeakSight, VisibilityRequest, VisibilityResponse } from '../lib/visibility/protocol';
 
 /**
  * Worker de visibilité : reconstruit les champs d'altitude transférés puis
@@ -12,11 +13,11 @@ import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
 
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<VisibilityRequest>) => void) | null;
-  postMessage: (message: PeakSight[]) => void;
+  postMessage: (message: VisibilityResponse, transfer?: Transferable[]) => void;
 };
 
 scope.onmessage = (event) => {
-  const { viewpoint, eyeElevation, innerRadiusM, inner, outer, peaks } = event.data;
+  const { viewpoint, eyeElevation, innerRadiusM, inner, outer, peaks, skylineStepDeg } = event.data;
 
   const innerField = deserializeGeoHeightField(inner);
   const outerField = deserializeGeoHeightField(outer);
@@ -35,5 +36,9 @@ scope.onmessage = (event) => {
     };
   });
 
-  scope.postMessage(sights);
+  const skyline = skylineStepDeg
+    ? computeDemSkyline(sample, eyeElevation, { stepDeg: skylineStepDeg })
+    : null;
+
+  scope.postMessage({ sights, skyline }, skyline ? [skyline.buffer] : []);
 };

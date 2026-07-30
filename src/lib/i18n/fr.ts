@@ -42,6 +42,9 @@ export const fr = {
     cameraError: 'Caméra ou capteurs refusés — vérifiez les autorisations du navigateur.',
     calibrateHint: 'Étiquettes décalées ? Glissez horizontalement pour recaler la boussole',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
+    calibrateAuto: 'Recaler sur l’horizon',
+    horizonLocked: 'Horizon calé',
+    horizonNotFound: 'Horizon introuvable — recalez à la main',
   },
   settings: {
     title: 'Réglages',

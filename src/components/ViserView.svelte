@@ -10,7 +10,12 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { iosCompassToAlpha, orientationToAim } from '../lib/viser/orientation';
-  import type { PeakSight, VisibilityRequest } from '../lib/visibility/protocol';
+  import { detectImageSkyline, matchSkyline } from '../lib/viser/skyline';
+  import type {
+    PeakSight,
+    VisibilityRequest,
+    VisibilityResponse,
+  } from '../lib/visibility/protocol';
   import PeakLabels from './PeakLabels.svelte';
 
   /** Mêmes champs d'altitude que le panorama (proche z12, lointain z10). */
@@ -22,6 +27,8 @@
   const FOV_DEG = 55;
   const PEAKS_RADIUS_M = 75_000;
   const PEAKS_LIMIT = 300;
+  /** Pas d'azimut du profil d'horizon théorique (°). */
+  const SKYLINE_STEP_DEG = 0.5;
 
   let { viewpoint }: { viewpoint: LatLon } = $props();
 
@@ -41,8 +48,13 @@
   let candidates: LabelCandidate[] = [];
   let eyeElevation = 0;
   let aim = { heading: 0, pitch: 0 };
-  /** Recalage boussole ajouté par l'utilisateur (glissé horizontal). */
+  /** Recalages : glissé manuel et/ou alignement automatique sur l'horizon. */
   let headingOffset = 0;
+  let pitchOffset = 0;
+  let demSkyline = $state<Float32Array | null>(null);
+  let calibrating = $state(false);
+  let calibMessage = $state<string | null>(null);
+  let calibTimer: ReturnType<typeof setTimeout> | undefined;
   let gotSensor = false;
   let relayoutQueued = false;
 
@@ -56,7 +68,7 @@
       heading = headingNow;
       labels = placeLabels(candidates, {
         headingDeg: headingNow,
-        pitchDeg: aim.pitch,
+        pitchDeg: aim.pitch + pitchOffset,
         fovDeg: FOV_DEG,
         width: container.clientWidth,
         height: container.clientHeight,
@@ -84,8 +96,9 @@
     worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
       type: 'module',
     });
-    worker.onmessage = (event: MessageEvent<PeakSight[]>) => {
-      sights = event.data;
+    worker.onmessage = (event: MessageEvent<VisibilityResponse>) => {
+      sights = event.data.sights;
+      demSkyline = event.data.skyline;
       candidates = toCandidates(sights, peaks, eyeElevation, settings.names);
       peaksStatus = candidates.length > 0 ? 'ok' : 'noneVisible';
       relayout();
@@ -113,6 +126,7 @@
         inner: serializeGeoHeightField(inner),
         outer: serializeGeoHeightField(outer),
         peaks: peaks.map(({ id, lat, lon, elevation }) => ({ id, lat, lon, elevation })),
+        skylineStepDeg: SKYLINE_STEP_DEG,
       };
       worker.postMessage(request, [request.inner.data.buffer, request.outer.data.buffer]);
     } catch {
@@ -151,6 +165,50 @@
     }, 2500);
     phase = 'running';
     void loadData();
+  }
+
+  /** Recalage automatique : aligne l'horizon détecté sur le profil du relief. */
+  function autoCalibrate(): void {
+    if (!demSkyline || calibrating || video.videoWidth === 0) return;
+    calibrating = true;
+    clearTimeout(calibTimer);
+    try {
+      const width = 240;
+      const height = Math.max(60, Math.round((width * video.videoHeight) / video.videoWidth));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('canvas indisponible');
+      ctx.drawImage(video, 0, 0, width, height);
+      const image = ctx.getImageData(0, 0, width, height);
+
+      const detected = detectImageSkyline(image.data, width, height);
+      const match = matchSkyline(
+        detected,
+        {
+          headingDeg: normalizeBearing(aim.heading + headingOffset),
+          pitchDeg: aim.pitch + pitchOffset,
+          fovDeg: FOV_DEG,
+        },
+        demSkyline,
+        { demStepDeg: SKYLINE_STEP_DEG },
+      );
+
+      if (!match || match.maeDeg > 1.5) {
+        calibMessage = fr.viser.horizonNotFound;
+      } else {
+        headingOffset += match.headingOffsetDeg;
+        pitchOffset += match.pitchOffsetDeg;
+        const deg = Math.round(match.headingOffsetDeg);
+        calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;
+        relayout();
+      }
+    } catch {
+      calibMessage = fr.viser.horizonNotFound;
+    }
+    calibrating = false;
+    calibTimer = setTimeout(() => (calibMessage = null), 4000);
   }
 
   // Glissé : recalage de la boussole, ou visée complète sans capteurs.
@@ -232,6 +290,15 @@
     </div>
     <p class="hint">{sensorless ? fr.viser.dragHint : fr.viser.calibrateHint}</p>
 
+    {#if demSkyline && !sensorless}
+      <button class="calibrate" onclick={autoCalibrate} disabled={calibrating}>
+        ✨ {fr.viser.calibrateAuto}
+      </button>
+    {/if}
+    {#if calibMessage}
+      <p class="calib-message" role="status">{calibMessage}</p>
+    {/if}
+
     {#if peaksStatus !== 'ok' && peaksStatus !== 'idle'}
       <div class="peaks-status" role="status">
         {#if peaksStatus === 'searching'}
@@ -286,6 +353,45 @@
     border: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
     font-size: 0.9rem;
+    pointer-events: none;
+  }
+
+  .calibrate {
+    position: absolute;
+    bottom: 5.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.5rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    color: var(--accent);
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+
+  .calibrate:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  .calibrate:hover:enabled {
+    border-color: var(--accent);
+  }
+
+  .calib-message {
+    position: absolute;
+    bottom: 8rem;
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.82rem;
+    white-space: nowrap;
     pointer-events: none;
   }
 

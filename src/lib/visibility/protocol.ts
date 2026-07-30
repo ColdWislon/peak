@@ -20,6 +20,14 @@ export interface VisibilityRequest {
   inner: GeoHeightFieldData;
   outer: GeoHeightFieldData;
   peaks: PeakSite[];
+  /** Si présent, calcule aussi le profil d'horizon théorique à ce pas (°). */
+  skylineStepDeg?: number;
+}
+
+export interface VisibilityResponse {
+  sights: PeakSight[];
+  /** Profil d'horizon (rad par bin d'azimut), si demandé. */
+  skyline: Float32Array | null;
 }
 
 /** Résultat par sommet : visibilité et géométrie locale prête pour l'affichage. */
