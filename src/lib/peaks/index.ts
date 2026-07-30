@@ -4,12 +4,32 @@ import type { LatLon } from '../geo';
 export interface Peak {
   /** Identifiant du nœud OSM. */
   id: number;
+  /** Nom local (tag `name`). */
   name: string;
+  /** Nom français (tag `name:fr`), quand OSM le connaît. */
+  nameFr: string | null;
   lat: number;
   lon: number;
   /** Altitude du tag `ele` (m), si présente et plausible. */
   elevation: number | null;
+  /** Proéminence (m) — rare dans OSM mais précieuse pour prioriser. */
+  prominence: number | null;
   wikidata: string | null;
+}
+
+/** Quel nom afficher : français quand disponible, ou toujours le nom local. */
+export type NamePreference = 'fr' | 'local';
+
+export function peakDisplayName(peak: Peak, preference: NamePreference): string {
+  return preference === 'fr' ? (peak.nameFr ?? peak.name) : peak.name;
+}
+
+/**
+ * Importance d'un sommet pour la priorisation : l'altitude, plus un bonus de
+ * proéminence (un 3000 très proéminent compte plus qu'une antécime de 4000).
+ */
+export function peakImportance(peak: Pick<Peak, 'elevation' | 'prominence'>): number {
+  return (peak.elevation ?? -Infinity) + (peak.prominence ?? 0) * 2;
 }
 
 /** Requête Overpass QL : sommets nommés dans un rayon autour d'un point. */
@@ -57,15 +77,17 @@ export function parsePeaks(json: unknown): Peak[] {
     if (typeof el.id !== 'number' || typeof el.lat !== 'number' || typeof el.lon !== 'number') {
       continue;
     }
-    const name = el.tags?.['name:fr'] ?? el.tags?.['name'];
+    const name = el.tags?.['name'] ?? el.tags?.['name:fr'];
     if (!name) continue;
 
     peaks.push({
       id: el.id,
       name,
+      nameFr: el.tags?.['name:fr'] ?? null,
       lat: el.lat,
       lon: el.lon,
       elevation: parseElevation(el.tags?.['ele']),
+      prominence: parseElevation(el.tags?.['prominence']),
       wikidata: el.tags?.['wikidata'] ?? null,
     });
   }
@@ -73,12 +95,10 @@ export function parsePeaks(json: unknown): Peak[] {
 }
 
 /**
- * Garde les `limit` sommets les plus importants (altitude décroissante, les
- * sommets sans altitude en dernier) — évite de noyer l'affichage et le calcul
- * de visibilité sous des centaines de points.
+ * Garde les `limit` sommets les plus importants (altitude + proéminence,
+ * les sommets sans altitude en dernier) — évite de noyer l'affichage et le
+ * calcul de visibilité sous des centaines de points.
  */
 export function topPeaks(peaks: Peak[], limit: number): Peak[] {
-  return [...peaks]
-    .sort((a, b) => (b.elevation ?? -Infinity) - (a.elevation ?? -Infinity))
-    .slice(0, limit);
+  return [...peaks].sort((a, b) => peakImportance(b) - peakImportance(a)).slice(0, limit);
 }

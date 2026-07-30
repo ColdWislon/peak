@@ -94,8 +94,26 @@ describe('placeLabels', () => {
 
 describe('toCandidates', () => {
   const peaks: Peak[] = [
-    { id: 1, name: 'Mont Blanc', lat: 0, lon: 0, elevation: 4808, wikidata: null },
-    { id: 2, name: 'Caché', lat: 0, lon: 0, elevation: 2000, wikidata: null },
+    {
+      id: 1,
+      name: 'Monte Bianco',
+      nameFr: 'Mont Blanc',
+      lat: 0,
+      lon: 0,
+      elevation: 4808,
+      prominence: 4696,
+      wikidata: null,
+    },
+    {
+      id: 2,
+      name: 'Caché',
+      nameFr: null,
+      lat: 0,
+      lon: 0,
+      elevation: 2000,
+      prominence: null,
+      wikidata: null,
+    },
   ];
   const sights: PeakSight[] = [
     { id: 1, visible: true, distanceM: 20_000, elevation: 4808, east: 0, north: 20_000 },
@@ -109,6 +127,13 @@ describe('toCandidates', () => {
     expect(candidates[0]!.name).toBe('Mont Blanc');
     expect(candidates[0]!.azimuthDeg).toBeCloseTo(0, 6);
     expect(candidates[0]!.elevAngleRad).toBeGreaterThan(0);
+    // Score = importance : altitude + bonus de proéminence.
+    expect(candidates[0]!.score).toBeCloseTo(4808 + 4696 * 2, 6);
+  });
+
+  it('respecte la préférence de nom local', () => {
+    const candidates = toCandidates(sights, peaks, 1000, 'local');
+    expect(candidates[0]!.name).toBe('Monte Bianco');
   });
 });
 

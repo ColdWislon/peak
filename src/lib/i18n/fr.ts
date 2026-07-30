@@ -43,6 +43,9 @@ export const fr = {
     units: 'Unités',
     unitsMetric: 'Mètres (m, km)',
     unitsImperial: 'Pieds (ft, mi)',
+    names: 'Noms des sommets',
+    namesFr: 'Français si disponible',
+    namesLocal: 'Nom local',
   },
   map: {
     panoramaHere: 'Panorama ici',

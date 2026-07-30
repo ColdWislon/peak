@@ -75,5 +75,7 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       marqueurs (vérifié sur build de prod : bascule en direct + persistance)
 - [x] Icônes PWA en PNG 192/512 + variante maskable (générées depuis le SVG via Chromium)
 - [ ] Vérifier hillshade/terrain MapLibre sur l'app déployée (angle mort SwiftShader du bac à sable)
-- [ ] Étiquettes : nom `name:fr` vs local selon préférence ; proéminence quand disponible
+- [x] Étiquettes : nom `name:fr` vs local selon préférence (réglage « Noms des sommets »,
+      appliqué au panorama et à la carte sans rechargement) ; proéminence OSM parsée et
+      intégrée au score de priorité (altitude + 2 × proéminence, sélection et étiquetage)
 - [ ] Phase 4 : app native AR (hors de ce dépôt)

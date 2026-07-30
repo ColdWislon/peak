@@ -6,7 +6,7 @@
   import { fr } from '../lib/i18n/fr';
   import { formatElevation } from '../lib/labels';
   import { roundRadiusM, visibleRadiusM } from '../lib/map';
-  import { topPeaks, type Peak } from '../lib/peaks';
+  import { peakDisplayName, topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
   import { settings } from '../lib/settings/store.svelte';
   import { TERRARIUM_TILE_TEMPLATE } from '../lib/terrain/tiles';
@@ -36,7 +36,7 @@
     el.className = 'peak-marker';
     const name = document.createElement('span');
     name.className = 'peak-marker-name';
-    name.textContent = peak.name;
+    name.textContent = peakDisplayName(peak, settings.names);
     el.append(name);
     if (peak.elevation !== null) {
       const ele = document.createElement('span');
@@ -141,12 +141,14 @@
   });
 
   // Les marqueurs sont du DOM construit à la main : on les régénère quand
-  // les unités changent (le premier passage est couvert par l'événement load).
-  let unitsInitialized = false;
+  // les unités ou la préférence de nom changent (le premier passage est
+  // couvert par l'événement load).
+  let markersInitialized = false;
   $effect(() => {
     void settings.units;
-    if (!unitsInitialized) {
-      unitsInitialized = true;
+    void settings.names;
+    if (!markersInitialized) {
+      markersInitialized = true;
       return;
     }
     if (map) void refreshPeaks();
@@ -169,7 +171,7 @@
       <button class="close" onclick={() => (selected = null)} aria-label={fr.peakCard.close}>
         ×
       </button>
-      <h2>{selected.name}</h2>
+      <h2>{peakDisplayName(selected, settings.names)}</h2>
       <p>
         {#if selected.elevation !== null}
           {fr.peakCard.elevation} :
