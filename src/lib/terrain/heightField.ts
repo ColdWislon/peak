@@ -86,3 +86,33 @@ export class GeoHeightField {
     return this.field.sampleBilinear(px - 0.5, py - 0.5);
   }
 }
+
+/** Forme sérialisable d'un GeoHeightField (transfert vers un Web Worker). */
+export interface GeoHeightFieldData {
+  zoom: number;
+  originTileX: number;
+  originTileY: number;
+  width: number;
+  height: number;
+  data: Float32Array;
+}
+
+export function serializeGeoHeightField(field: GeoHeightField): GeoHeightFieldData {
+  return {
+    zoom: field.zoom,
+    originTileX: field.originTileX,
+    originTileY: field.originTileY,
+    width: field.field.width,
+    height: field.field.height,
+    data: field.field.data,
+  };
+}
+
+export function deserializeGeoHeightField(data: GeoHeightFieldData): GeoHeightField {
+  return new GeoHeightField(
+    data.zoom,
+    data.originTileX,
+    data.originTileY,
+    new HeightField(data.width, data.height, data.data),
+  );
+}
