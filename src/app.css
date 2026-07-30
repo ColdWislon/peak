@@ -1,0 +1,52 @@
+/* Thème « sombre alpin » — décision n° 13 du PLAN.md */
+:root {
+  --bg: #0b1020;
+  --surface: #141b2e;
+  --surface-2: #1b2440;
+  --border: #232c44;
+  --text: #e8edf7;
+  --muted: #8b96ad;
+  --accent: #6fd3ff;
+
+  color-scheme: dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
