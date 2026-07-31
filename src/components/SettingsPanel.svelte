@@ -1,10 +1,27 @@
 <script lang="ts">
+  import { buildDebugReport } from '../lib/debug/report';
   import { fr } from '../lib/i18n/fr';
   import type { NamePreference } from '../lib/peaks';
   import type { RenderQuality, Units } from '../lib/settings';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
 
   let open = $state(false);
+  let reportMessage = $state<string | null>(null);
+  let reportFallback = $state<string | null>(null);
+
+  async function copyReport(): Promise<void> {
+    const report = buildDebugReport({ reglages: { ...settings } });
+    reportFallback = null;
+    try {
+      await navigator.clipboard.writeText(report);
+      reportMessage = fr.settings.reportCopied;
+    } catch {
+      // Presse-papiers refusé (permissions, iframe…) : texte sélectionnable.
+      reportFallback = report;
+      reportMessage = fr.settings.reportFailed;
+    }
+    setTimeout(() => (reportMessage = null), 6000);
+  }
 
   const qualities: Array<{ value: RenderQuality; label: string }> = [
     { value: 'auto', label: fr.settings.qualityAuto },
@@ -101,6 +118,17 @@
           </label>
         {/each}
       </fieldset>
+
+      <fieldset>
+        <legend>{fr.settings.debug}</legend>
+        <button class="report" onclick={() => void copyReport()}>
+          {fr.settings.copyReport}
+        </button>
+        {#if reportMessage}<p class="report-note" role="status">{reportMessage}</p>{/if}
+        {#if reportFallback}
+          <textarea class="report-text" readonly rows="6">{reportFallback}</textarea>
+        {/if}
+      </fieldset>
     </div>
   {/if}
 </div>
@@ -173,5 +201,38 @@
 
   input[type='radio'] {
     accent-color: var(--accent);
+  }
+
+  .report {
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--surface-2);
+    color: var(--accent);
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+
+  .report:hover {
+    border-color: var(--accent);
+  }
+
+  .report-note {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .report-text {
+    width: 100%;
+    margin-top: 0.4rem;
+    padding: 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: monospace;
+    font-size: 0.65rem;
+    resize: vertical;
   }
 </style>

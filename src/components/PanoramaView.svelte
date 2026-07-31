@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { registerDebugProvider } from '../lib/debug/report';
   import type { LatLon } from '../lib/geo';
   import { cardinalFor, fr } from '../lib/i18n/fr';
   import {
@@ -139,7 +140,17 @@
     });
     heading = engine.view.heading;
 
+    const unregister = registerDebugProvider('panorama', () => ({
+      chargement: loading,
+      echec: failed,
+      statutSommets: peaksStatus,
+      etiquettes: labels.length,
+      vue: engine ? { ...engine.view } : null,
+      pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon },
+    }));
+
     return () => {
+      unregister();
       worker?.terminate();
       engine?.dispose();
     };

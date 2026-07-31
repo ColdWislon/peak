@@ -52,6 +52,13 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
 - Les modules `peaks` (Overpass) et la recherche Nominatim se testent donc par fixtures ;
   ne pas perdre de temps à déboguer le réseau du bac à sable.
 
+- [x] Rapport de débogage embarqué (zéro backend) : journal circulaire (100 événements) +
+      fournisseurs d'état par composant (`lib/debug/report`, testé), instrumentation du mode
+      Viser (capteurs bruts, démarrage caméra, données, visibilité, chaque calibrage avec
+      statistiques de confiance et résultat du matcher) et du panorama ; bouton « Copier le
+      rapport de débogage » dans ⚙ (repli textarea si presse-papiers refusé). L'utilisateur
+      colle le JSON dans la conversation — rien ne quitte l'appareil sans ce geste.
+
 ## Phase 2 — carte 3D (détail à affiner en fin de phase 1)
 
 - [x] MapLibre GL + terrain terrarium + marqueurs de sommets + fiches + lien panorama ↔ carte
