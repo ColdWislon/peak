@@ -58,6 +58,10 @@ export const fr = {
     names: 'Noms des sommets',
     namesFr: 'Français si disponible',
     namesLocal: 'Nom local',
+    debug: 'Débogage',
+    copyReport: 'Copier le rapport de débogage',
+    reportCopied: 'Rapport copié — collez-le dans la conversation avec Claude',
+    reportFailed: 'Copie impossible — sélectionnez le texte ci-dessous',
   },
   map: {
     panoramaHere: 'Panorama ici',

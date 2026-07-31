@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { logDebug, registerDebugProvider } from '../lib/debug/report';
   import { normalizeBearing, type LatLon } from '../lib/geo';
   import { cardinalFor, fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
@@ -60,6 +61,7 @@
   let calibTimer: ReturnType<typeof setTimeout> | undefined;
   let gotSensor = false;
   let relayoutQueued = false;
+  let lastRawOrientation: Record<string, unknown> | null = null;
 
   /** Le web n'expose pas le FOV caméra : étalonné par l'horizon, persisté. */
   function currentFov(): number {
@@ -96,6 +98,14 @@
   function onOrientation(event: DeviceOrientationEvent): void {
     const compass = (event as { webkitCompassHeading?: number }).webkitCompassHeading;
     if (event.alpha === null || event.beta === null || event.gamma === null) return;
+    lastRawOrientation = {
+      alpha: event.alpha,
+      beta: event.beta,
+      gamma: event.gamma,
+      boussoleWebkit: compass ?? null,
+      absolu: event.type === 'deviceorientationabsolute',
+    };
+    if (!gotSensor) logDebug('viser:capteurs', lastRawOrientation);
     gotSensor = true;
     sensorless = false;
     const alpha = typeof compass === 'number' ? iosCompassToAlpha(compass) : event.alpha;
@@ -118,6 +128,10 @@
       demSkyline = event.data.skyline;
       candidates = toCandidates(sights, peaks, eyeElevation, settings.names);
       peaksStatus = candidates.length > 0 ? 'ok' : 'noneVisible';
+      logDebug('viser:visibilite', {
+        visibles: candidates.length,
+        horizonCalcule: demSkyline !== null,
+      });
       relayout();
     };
     worker.onerror = () => {
@@ -132,6 +146,11 @@
       ]);
       eyeElevation = (inner.contains(plain) ? inner.elevationAt(plain) : 0) + EYE_HEIGHT_M;
       peaks = topPeaks(await peaksAround(plain, PEAKS_RADIUS_M), PEAKS_LIMIT);
+      logDebug('viser:donnees', {
+        pointDeVue: plain,
+        oeil: Math.round(eyeElevation),
+        sommets: peaks.length,
+      });
       if (peaks.length === 0) {
         peaksStatus = 'empty';
         return;
@@ -146,7 +165,8 @@
         skylineStepDeg: SKYLINE_STEP_DEG,
       };
       worker.postMessage(request, [request.inner.data.buffer, request.outer.data.buffer]);
-    } catch {
+    } catch (error) {
+      logDebug('viser:erreur', { etape: 'donnees', detail: String(error) });
       peaksStatus = 'error';
     }
   }
@@ -170,7 +190,9 @@
       });
       video.srcObject = stream;
       await video.play();
-    } catch {
+      logDebug('viser:start', { video: { w: video.videoWidth, h: video.videoHeight } });
+    } catch (error) {
+      logDebug('viser:erreur', { etape: 'start', detail: String(error) });
       phase = 'error';
       errorMessage = fr.viser.cameraError;
       return;
@@ -211,6 +233,25 @@
         demSkyline,
         { demStepDeg: SKYLINE_STEP_DEG, fovSearch: {} },
       );
+
+      const conf = [...detected.confidence].sort((a, b) => a - b);
+      logDebug('viser:calibrage', {
+        confiance: {
+          min: Number(conf[0]?.toFixed(2)),
+          mediane: Number(conf[Math.floor(conf.length / 2)]?.toFixed(2)),
+          max: Number(conf[conf.length - 1]?.toFixed(2)),
+        },
+        resultat: match
+          ? {
+              cap: Number(match.headingOffsetDeg.toFixed(2)),
+              assiette: Number(match.pitchOffsetDeg.toFixed(2)),
+              fov: Number(match.fovDeg.toFixed(1)),
+              mae: Number(match.maeDeg.toFixed(3)),
+              colonnes: match.usedColumns,
+            }
+          : null,
+        applique: Boolean(match && match.maeDeg <= 1.5),
+      });
 
       if (!match || match.maeDeg > 1.5) {
         calibMessage = fr.viser.horizonNotFound;
@@ -273,7 +314,27 @@
   }
 
   onMount(() => {
+    const unregister = registerDebugProvider('viser', () => ({
+      phase,
+      sansCapteurs: sensorless,
+      capteursRecus: gotSensor,
+      derniereOrientation: lastRawOrientation,
+      visee: { cap: Math.round(aim.heading), assiette: Number(aim.pitch.toFixed(1)) },
+      recalages: {
+        cap: Number(headingOffset.toFixed(1)),
+        assiette: Number(pitchOffset.toFixed(1)),
+      },
+      fov: currentFov(),
+      video: video ? { w: video.videoWidth, h: video.videoHeight } : null,
+      conteneur: container ? { w: container.clientWidth, h: container.clientHeight } : null,
+      statutSommets: peaksStatus,
+      sommets: peaks.length,
+      visibles: candidates.length,
+      horizonCalcule: demSkyline !== null,
+      oeil: Math.round(eyeElevation),
+    }));
     return () => {
+      unregister();
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
       window.removeEventListener('deviceorientation', onOrientation as EventListener);
