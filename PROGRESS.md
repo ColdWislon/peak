@@ -88,6 +88,12 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       la compression), persisté par appareil (`cameraFovDeg`) uniquement sur alignement
       excellent (mae ≤ 0,8°) et utilisé partout (étiquettes, horizon, glissés). Testé :
       68° retrouvés à ±2° depuis une hypothèse à 55°.
+- [x] Retour terrain « horizon trop haut à l'écran » (biais d'assiette des capteurs) :
+      glissé vertical = recalage d'assiette en mode capteurs (borné ±20°, il ne corrigeait
+      que le cap), fenêtre d'assiette du matcher élargie à ±8°, et départage du cap sur
+      horizon plat (pénalité minuscule sur |hOff| — l'égalité prenait sinon le premier
+      candidat de la grille, −25°). Testé : plaine avec biais de −5° → assiette corrigée,
+      cap intact.
 
 - [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
       localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,

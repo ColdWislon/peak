@@ -203,8 +203,9 @@ export function matchSkyline(
 ): SkylineMatch | null {
   const demStepDeg = options.demStepDeg ?? 0.5;
   const searchDeg = options.searchDeg ?? 25;
-  // L'assiette des capteurs (gravité) est fiable à ~±2° : fenêtre courte.
-  const pitchSearchDeg = options.pitchSearchDeg ?? 4;
+  // Les biais d'assiette constatés sur le terrain dépassent parfois 4-5°
+  // (calibration accéléromètre + fusion navigateur) : fenêtre à ±8°.
+  const pitchSearchDeg = options.pitchSearchDeg ?? 8;
   const minConfidence = options.minConfidence ?? 0.35;
 
   const columns: number[] = [];
@@ -236,7 +237,10 @@ export function matchSkyline(
         const mae = sum / samples.length;
         // Un horizon localement rectiligne rend cap et assiette interchangeables :
         // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
-        const cost = mae + 0.05 * Math.abs(pOff);
+        // Et sur un horizon PLAT le cap est indéterminé : la pénalité minuscule
+        // sur hOff casse l'égalité vers « pas de correction de cap » au lieu du
+        // premier candidat de la grille (−25°).
+        const cost = mae + 0.05 * Math.abs(pOff) + 0.001 * Math.abs(hOff);
         if (cost < bestCost) {
           bestCost = cost;
           match = {

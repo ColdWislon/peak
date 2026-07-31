@@ -40,7 +40,7 @@ export const fr = {
       'Pointez votre téléphone vers la montagne : Cimes superpose les noms des sommets visibles sur l’image de la caméra. Autorisez la caméra et les capteurs de mouvement.',
     start: 'Activer caméra et capteurs',
     cameraError: 'Caméra ou capteurs refusés — vérifiez les autorisations du navigateur.',
-    calibrateHint: 'Étiquettes décalées ? Glissez horizontalement pour recaler la boussole',
+    calibrateHint: 'Décalé ? Glissez pour recaler (↔ cap, ↕ hauteur)',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
     calibrateAuto: 'Recaler sur l’horizon',
     horizonLocked: 'Horizon calé',
