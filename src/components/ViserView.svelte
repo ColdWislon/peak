@@ -261,7 +261,10 @@
         pitch: Math.max(-40, Math.min(60, aim.pitch + dy * degPerPx)),
       };
     } else {
+      // Recalage bi-axe : ↔ corrige la boussole, ↕ corrige le biais d'assiette
+      // (les capteurs de gravité dérivent aussi de plusieurs degrés).
       headingOffset -= dx * degPerPx;
+      pitchOffset = Math.max(-20, Math.min(20, pitchOffset + dy * degPerPx));
     }
     relayout();
   }

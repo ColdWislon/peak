@@ -160,6 +160,38 @@ describe('matchSkyline', () => {
     expect(match!.fovDeg).toBe(55);
   });
 
+  it('sur un horizon plat : corrige l’assiette sans inventer de cap', () => {
+    // Cas terrain réel signalé : plaine, biais d'assiette de −5° (capteurs 4°,
+    // vraie assiette −1°). Le cap y est indéterminé : il ne doit pas bouger.
+    const flatDem = new Float32Array(720).fill(degToRad(-0.5));
+    const width = 120;
+    const height = 90;
+    const rows = new Float32Array(width);
+    const confidence = new Float32Array(width).fill(1);
+    for (let x = 0; x < width; x++) {
+      let bestY = 0;
+      let bestErr = Infinity;
+      for (let y = 0; y < height; y++) {
+        const { elevDeg } = pixelToAngles(x, y, width, height, -1, 55);
+        const err = Math.abs(elevDeg - -0.5);
+        if (err < bestErr) {
+          bestErr = err;
+          bestY = y;
+        }
+      }
+      rows[x] = bestY;
+    }
+    const match = matchSkyline(
+      { rows, confidence, width, height },
+      { headingDeg: 130, pitchDeg: 4, fovDeg: 55 },
+      flatDem,
+      { demStepDeg: 0.5 },
+    );
+    expect(match).not.toBeNull();
+    expect(Math.abs(match!.pitchOffsetDeg - -5)).toBeLessThanOrEqual(0.75);
+    expect(Math.abs(match!.headingOffsetDeg)).toBeLessThanOrEqual(0.5);
+  });
+
   it('refuse une détection trop peu confiante', () => {
     const detected = renderDetected(60, 45, 55);
     detected.confidence.fill(0);
