@@ -514,7 +514,7 @@
 
   .hud {
     position: absolute;
-    top: 0.75rem;
+    top: calc(0.75rem + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     padding: 0.3rem 0.9rem;
@@ -545,7 +545,7 @@
 
   .calibrate {
     position: absolute;
-    bottom: 5.2rem;
+    bottom: calc(5.2rem + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     padding: 0.5rem 1.1rem;
@@ -568,7 +568,7 @@
 
   .calib-message {
     position: absolute;
-    bottom: 8rem;
+    bottom: calc(8rem + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
@@ -584,7 +584,7 @@
 
   .hint {
     position: absolute;
-    bottom: 2.6rem;
+    bottom: calc(2.6rem + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
@@ -599,7 +599,7 @@
 
   .peaks-status {
     position: absolute;
-    top: 3.1rem;
+    top: calc(3.1rem + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     display: flex;

@@ -236,10 +236,16 @@
     font-size: 0.64rem;
   }
 
+  /* L'attribution MapLibre doit rester au-dessus de la barre home iOS. */
+  :global(.maplibregl-ctrl-bottom-left),
+  :global(.maplibregl-ctrl-bottom-right) {
+    margin-bottom: var(--safe-bottom);
+  }
+
   .fab {
     position: absolute;
     left: 50%;
-    bottom: 1.4rem;
+    bottom: calc(1.4rem + var(--safe-bottom));
     transform: translateX(-50%);
     padding: 0.55rem 1.1rem;
     border: 1px solid var(--border);
@@ -258,7 +264,7 @@
   .card {
     position: absolute;
     left: 50%;
-    bottom: 4.6rem;
+    bottom: calc(4.6rem + var(--safe-bottom));
     transform: translateX(-50%);
     min-width: 14rem;
     max-width: min(22rem, 90vw);

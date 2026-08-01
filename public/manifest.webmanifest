@@ -1,6 +1,7 @@
 {
   "name": "Cimes",
   "short_name": "Cimes",
+  "id": "./",
   "description": "Identifiez les sommets autour de vous dans un panorama 3D du relief.",
   "lang": "fr",
   "start_url": "./",
