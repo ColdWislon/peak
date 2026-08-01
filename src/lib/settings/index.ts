@@ -16,15 +16,20 @@ export interface Settings {
   units: Units;
   /** Nom des sommets : français quand disponible, ou nom local. */
   names: NamePreference;
-  /** FOV vertical de la caméra (°), mesuré par recalage horizon ; null = pas étalonné. */
-  cameraFovDeg: number | null;
+  /**
+   * FOV du petit côté du capteur caméra (°), mesuré par recalage horizon ;
+   * null = pas étalonné. Invariant quand l'écran tourne — le FOV vertical de la
+   * vue s'en déduit via la découpe `cover` (lib/viser/videoView). Remplace
+   * l'ancien `cameraFovDeg` (FOV d'écran, sémantique différente : ignoré).
+   */
+  cameraShortFovDeg: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'auto',
   units: 'metric',
   names: 'fr',
-  cameraFovDeg: null,
+  cameraShortFovDeg: null,
 };
 
 const QUALITIES: readonly RenderQuality[] = ['auto', 'elevee', 'eco'];
@@ -46,12 +51,12 @@ export function parseSettings(raw: string | null): Settings {
       names: NAMES.includes(parsed.names as NamePreference)
         ? (parsed.names as NamePreference)
         : DEFAULT_SETTINGS.names,
-      cameraFovDeg:
-        typeof parsed.cameraFovDeg === 'number' &&
-        Number.isFinite(parsed.cameraFovDeg) &&
-        parsed.cameraFovDeg >= 30 &&
-        parsed.cameraFovDeg <= 100
-          ? parsed.cameraFovDeg
+      cameraShortFovDeg:
+        typeof parsed.cameraShortFovDeg === 'number' &&
+        Number.isFinite(parsed.cameraShortFovDeg) &&
+        parsed.cameraShortFovDeg >= 30 &&
+        parsed.cameraShortFovDeg <= 100
+          ? parsed.cameraShortFovDeg
           : null,
     };
   } catch {

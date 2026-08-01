@@ -4,6 +4,7 @@ import type { ElevationSampler } from '../visibility';
 import {
   computeDemSkyline,
   detectImageSkyline,
+  isMatchReliable,
   matchSkyline,
   pixelToAngles,
   skylineScreenPoints,
@@ -196,5 +197,36 @@ describe('matchSkyline', () => {
     const detected = renderDetected(60, 45, 55);
     detected.confidence.fill(0);
     expect(matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem)).toBeNull();
+  });
+
+  it('reste verrouillé malgré une minorité de colonnes parasites', () => {
+    // Cas du rapport terrain (contre-jour marin) : un bloc de colonnes accroche
+    // un bord fort bien SOUS l'horizon vrai. Le coût plafonné doit laisser la
+    // majorité saine gagner au lieu de tirer assiette et FOV vers les bornes.
+    const detected = renderDetected(120, 90, 55);
+    for (let x = 90; x < 120; x++) {
+      detected.rows[x] = Math.min(88, detected.rows[x]! + 20); // ~12° trop bas
+    }
+    const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+    });
+    expect(match).not.toBeNull();
+    expect(Math.abs(match!.headingOffsetDeg - 7)).toBeLessThanOrEqual(1);
+    expect(Math.abs(match!.pitchOffsetDeg - -1)).toBeLessThanOrEqual(1);
+    expect(match!.maeDeg).toBeLessThan(1); // MAE des colonnes concordantes
+    expect(match!.inlierColumns).toBeGreaterThanOrEqual(85);
+    expect(isMatchReliable(match!)).toBe(true);
+  });
+
+  it('refuse d’appliquer quand la majorité des colonnes accroche un parasite', () => {
+    const detected = renderDetected(120, 90, 55);
+    for (let x = 0; x < 78; x++) {
+      detected.rows[x] = Math.min(88, detected.rows[x]! + 20); // 65 % parasites
+    }
+    const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+    });
+    expect(match).not.toBeNull();
+    expect(isMatchReliable(match!)).toBe(false);
   });
 });
