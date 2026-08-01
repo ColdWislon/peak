@@ -58,6 +58,9 @@ export const fr = {
     names: 'Noms des sommets',
     namesFr: 'Français si disponible',
     namesLocal: 'Nom local',
+    install: 'Installer l’app',
+    installIosHint:
+      'Dans Safari : bouton Partager, puis « Sur l’écran d’accueil ». Cimes se lance alors en plein écran, hors-ligne compris.',
     debug: 'Débogage',
     copyReport: 'Copier le rapport de débogage',
     reportCopied: 'Rapport copié — collez-le dans la conversation avec Claude',

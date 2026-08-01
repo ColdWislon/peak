@@ -2,12 +2,21 @@
   import { buildDebugReport } from '../lib/debug/report';
   import { fr } from '../lib/i18n/fr';
   import type { NamePreference } from '../lib/peaks';
+  import { isIosDevice, isStandalone } from '../lib/pwa/install';
   import type { RenderQuality, Units } from '../lib/settings';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
 
   let open = $state(false);
   let reportMessage = $state<string | null>(null);
   let reportFallback = $state<string | null>(null);
+
+  // Aide à l'installation PWA : seulement sur iOS et hors app déjà installée.
+  const showInstall =
+    isIosDevice(navigator.userAgent, navigator.maxTouchPoints) &&
+    !isStandalone(
+      window.matchMedia('(display-mode: standalone)').matches,
+      (navigator as Navigator & { standalone?: boolean }).standalone,
+    );
 
   async function copyReport(): Promise<void> {
     const report = buildDebugReport({ reglages: { ...settings } });
@@ -119,6 +128,13 @@
         {/each}
       </fieldset>
 
+      {#if showInstall}
+        <fieldset>
+          <legend>{fr.settings.install}</legend>
+          <p class="install-hint">{fr.settings.installIosHint}</p>
+        </fieldset>
+      {/if}
+
       <fieldset>
         <legend>{fr.settings.debug}</legend>
         <button class="report" onclick={() => void copyReport()}>
@@ -201,6 +217,12 @@
 
   input[type='radio'] {
     accent-color: var(--accent);
+  }
+
+  .install-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
   }
 
   .report {

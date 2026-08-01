@@ -143,3 +143,19 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       synthétiques (sud → Mont Blanc, est → Aiguille Verte, recalage +7°). Piège corrigé :
       `setPointerCapture` sur un conteneur retarge les `click` — ignorer les appuis sur boutons.
       (App native : option future si la précision des capteurs web déçoit.)
+- [x] PWA installable sur iPhone (« une app plutôt qu'un site ») : icône tactile 180×180
+      opaque et 11 écrans de démarrage portrait générés depuis le SVG par
+      `scripts/generate-ios-assets.mjs` (Playwright ; dans le bac à sable :
+      `CHROMIUM_PATH=/opt/pw-browsers/chromium`), balises Apple dans index.html (titre,
+      barre de statut translucide, startup-image à correspondance exacte points × densité,
+      sinon iOS les ignore), zones sûres `env(safe-area-inset-*)` sur l'en-tête, le pied de
+      page et l'UI ancrée aux bords des trois vues (encoche/Dynamic Island/barre home,
+      portrait et paysage), `"id"` ajouté au manifest, coque SW passée en v2 — règle
+      établie : les fichiers publics non hachés sont épinglés cache-first, bump obligatoire
+      à chaque édition —, aide « Installer l'app » dans ⚙ visible seulement sur iOS hors
+      standalone (`lib/pwa/install`, module pur testé). Vérifié sur build de prod : balises
+      rebasées /peak/, assets servis, coque v2. Restent les vérifications sur iPhone réel :
+      installation, icône, lancement sans flash blanc, plein écran sans chevauchement de la
+      barre de statut, hors-ligne après une première session en ligne dans l'app installée
+      (stockage partitionné, distinct de Safari), caméra + capteurs du mode Viser en
+      standalone.
