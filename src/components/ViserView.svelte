@@ -11,7 +11,13 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { iosCompassToAlpha, orientationToAim } from '../lib/viser/orientation';
-  import { detectImageSkyline, matchSkyline, skylineScreenPoints } from '../lib/viser/skyline';
+  import {
+    detectImageSkyline,
+    isMatchReliable,
+    matchSkyline,
+    skylineScreenPoints,
+  } from '../lib/viser/skyline';
+  import { coverCrop, screenFovDeg, shortSideFovDeg } from '../lib/viser/videoView';
   import type {
     PeakSight,
     VisibilityRequest,
@@ -24,8 +30,11 @@
   const OUTER = { zoom: 10, radiusM: 115_000 };
   /** Téléphone tenu à la main. */
   const EYE_HEIGHT_M = 1.7;
-  /** FOV vertical par défaut, remplacé par la mesure au recalage horizon. */
-  const DEFAULT_FOV_DEG = 55;
+  /** FOV du petit côté du capteur par défaut, remplacé par la mesure au recalage. */
+  const DEFAULT_SHORT_FOV_DEG = 55;
+  /** Plage plausible du FOV petit côté (smartphones), bornes de l'estimation. */
+  const SHORT_FOV_MIN_DEG = 40;
+  const SHORT_FOV_MAX_DEG = 80;
   const PEAKS_RADIUS_M = 75_000;
   const PEAKS_LIMIT = 300;
   /** Pas d'azimut du profil d'horizon théorique (°). */
@@ -63,9 +72,29 @@
   let relayoutQueued = false;
   let lastRawOrientation: Record<string, unknown> | null = null;
 
-  /** Le web n'expose pas le FOV caméra : étalonné par l'horizon, persisté. */
-  function currentFov(): number {
-    return settings.cameraFovDeg ?? DEFAULT_FOV_DEG;
+  /** FOV petit côté du capteur : le web ne l'expose pas — étalonné, persisté. */
+  function shortFov(): number {
+    return settings.cameraShortFovDeg ?? DEFAULT_SHORT_FOV_DEG;
+  }
+
+  /**
+   * FOV vertical de la VUE : la vidéo est affichée en `object-fit: cover`, donc
+   * l'écran ne montre qu'une découpe du cadre caméra. En paysage cette découpe
+   * est une bande centrale — son FOV vertical est bien plus étroit que celui du
+   * capteur ; toutes les projections (étiquettes, horizon, glissés, calibrage)
+   * partagent cette valeur-là.
+   */
+  function currentScreenFov(): number {
+    if (!video || !container || video.videoWidth === 0 || container.clientHeight === 0) {
+      return shortFov();
+    }
+    return screenFovDeg(
+      shortFov(),
+      video.videoWidth,
+      video.videoHeight,
+      container.clientWidth,
+      container.clientHeight,
+    );
   }
 
   function relayout(): void {
@@ -79,7 +108,7 @@
       const view = {
         headingDeg: headingNow,
         pitchDeg: aim.pitch + pitchOffset,
-        fovDeg: currentFov(),
+        fovDeg: currentScreenFov(),
         width: container.clientWidth,
         height: container.clientHeight,
       };
@@ -123,6 +152,10 @@
     worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
       type: 'module',
     });
+    // Garde anti-course : si un rechargement plus récent remplace ce worker
+    // pendant les await ci-dessous, cet appel-ci abandonne (sinon les deux
+    // postaient leur requête au worker le plus récent — réponses en double).
+    const mine = worker;
     worker.onmessage = (event: MessageEvent<VisibilityResponse>) => {
       sights = event.data.sights;
       demSkyline = event.data.skyline;
@@ -144,8 +177,10 @@
         loadBlockHeightField(tileBlockAround(plain, INNER.radiusM, INNER.zoom)),
         loadBlockHeightField(tileBlockAround(plain, OUTER.radiusM, OUTER.zoom)),
       ]);
+      if (worker !== mine) return; // supplanté pendant le chargement
       eyeElevation = (inner.contains(plain) ? inner.elevationAt(plain) : 0) + EYE_HEIGHT_M;
       peaks = topPeaks(await peaksAround(plain, PEAKS_RADIUS_M), PEAKS_LIMIT);
+      if (worker !== mine) return;
       logDebug('viser:donnees', {
         pointDeVue: plain,
         oeil: Math.round(eyeElevation),
@@ -202,8 +237,10 @@
     setTimeout(() => {
       if (!gotSensor) sensorless = true;
     }, 2500);
+    // Pas d'appel direct à loadData : l'$effect (phase + point de vue) s'en
+    // charge — l'appeler ici aussi doublait chargement et worker (deux
+    // « viser:donnees » dans les rapports de débogage).
     phase = 'running';
-    void loadData();
   }
 
   /** Recalage automatique : aligne l'horizon détecté sur le profil du relief. */
@@ -212,27 +249,43 @@
     calibrating = true;
     clearTimeout(calibTimer);
     try {
+      const viewW = container.clientWidth;
+      const viewH = container.clientHeight;
+      // N'analyser que la partie du flux réellement affichée (`object-fit:
+      // cover`) : en paysage, le plein cadre 4:3 déborde beaucoup de l'écran et
+      // son premier plan invisible (rochers, reflets) accroche le détecteur
+      // alors que l'utilisateur cadre un horizon propre — cf. rapport terrain.
+      const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH);
       const width = 240;
-      const height = Math.max(60, Math.round((width * video.videoHeight) / video.videoWidth));
+      const height = Math.max(60, Math.round((width * viewH) / Math.max(1, viewW)));
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) throw new Error('canvas indisponible');
-      ctx.drawImage(video, 0, 0, width, height);
+      ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, width, height);
       const image = ctx.getImageData(0, 0, width, height);
 
+      const screenFov = currentScreenFov();
+      const boundFov = (shortSide: number) =>
+        screenFovDeg(shortSide, video.videoWidth, video.videoHeight, viewW, viewH);
       const detected = detectImageSkyline(image.data, width, height);
       const match = matchSkyline(
         detected,
         {
           headingDeg: normalizeBearing(aim.heading + headingOffset),
           pitchDeg: aim.pitch + pitchOffset,
-          fovDeg: currentFov(),
+          fovDeg: screenFov,
         },
         demSkyline,
-        { demStepDeg: SKYLINE_STEP_DEG, fovSearch: {} },
+        {
+          demStepDeg: SKYLINE_STEP_DEG,
+          // Bornes exprimées côté vue : mêmes limites physiques du capteur,
+          // vues à travers la découpe courante.
+          fovSearch: { minDeg: boundFov(SHORT_FOV_MIN_DEG), maxDeg: boundFov(SHORT_FOV_MAX_DEG) },
+        },
       );
+      const reliable = match !== null && isMatchReliable(match);
 
       const conf = [...detected.confidence].sort((a, b) => a - b);
       logDebug('viser:calibrage', {
@@ -241,30 +294,46 @@
           mediane: Number(conf[Math.floor(conf.length / 2)]?.toFixed(2)),
           max: Number(conf[conf.length - 1]?.toFixed(2)),
         },
+        fovEcran: Number(screenFov.toFixed(1)),
+        recadrage: {
+          sx: Math.round(crop.sx),
+          sy: Math.round(crop.sy),
+          sw: Math.round(crop.sw),
+          sh: Math.round(crop.sh),
+        },
         resultat: match
           ? {
               cap: Number(match.headingOffsetDeg.toFixed(2)),
               assiette: Number(match.pitchOffsetDeg.toFixed(2)),
               fov: Number(match.fovDeg.toFixed(1)),
-              mae: Number(match.maeDeg.toFixed(3)),
+              mae: Number.isFinite(match.maeDeg) ? Number(match.maeDeg.toFixed(3)) : null,
               colonnes: match.usedColumns,
+              concordantes: match.inlierColumns,
             }
           : null,
-        applique: Boolean(match && match.maeDeg <= 1.5),
+        applique: reliable,
       });
 
-      if (!match || match.maeDeg > 1.5) {
+      if (!match || !reliable) {
         calibMessage = fr.viser.horizonNotFound;
       } else {
         headingOffset += match.headingOffsetDeg;
         pitchOffset += match.pitchOffsetDeg;
         const deg = Math.round(match.headingOffsetDeg);
         // La surface de coût est plate en FOV : on ne persiste l'optique
-        // mesurée que sur un alignement excellent.
+        // mesurée que sur un alignement excellent. On stocke le FOV petit côté
+        // du capteur (invariant en rotation), reconverti depuis la vue.
         if (match.maeDeg <= 0.8) {
-          settings.cameraFovDeg = Math.round(match.fovDeg * 2) / 2;
+          const measured = shortSideFovDeg(
+            match.fovDeg,
+            video.videoWidth,
+            video.videoHeight,
+            viewW,
+            viewH,
+          );
+          settings.cameraShortFovDeg = Math.min(100, Math.max(30, Math.round(measured * 2) / 2));
           saveSettings();
-          calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(match.fovDeg)}°)`;
+          calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
         } else {
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;
         }
@@ -291,7 +360,7 @@
   }
   function onMove(e: PointerEvent): void {
     if (!dragging || phase !== 'running') return;
-    const degPerPx = currentFov() / Math.max(1, container.clientHeight);
+    const degPerPx = currentScreenFov() / Math.max(1, container.clientHeight);
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
     lastX = e.clientX;
@@ -324,7 +393,8 @@
         cap: Number(headingOffset.toFixed(1)),
         assiette: Number(pitchOffset.toFixed(1)),
       },
-      fov: currentFov(),
+      fovEcran: Number(currentScreenFov().toFixed(1)),
+      fovPetitCote: shortFov(),
       video: video ? { w: video.videoWidth, h: video.videoHeight } : null,
       conteneur: container ? { w: container.clientWidth, h: container.clientHeight } : null,
       statutSommets: peaksStatus,

@@ -1,0 +1,57 @@
+import { degToRad, radToDeg } from '../geo';
+
+/**
+ * Géométrie de la vue caméra (mode Viser) : le flux vidéo est affiché en
+ * `object-fit: cover`, donc seule une découpe centrée du cadre est visible.
+ * Toutes les projections (étiquettes, horizon, calibrage) raisonnent sur cette
+ * découpe visible ; le réglage persisté est le FOV du petit côté du capteur,
+ * seul invariant quand l'écran ou le flux tourne. Module pur, testé.
+ */
+
+/** Rectangle source (px vidéo) du flux réellement visible dans la vue. */
+export interface CoverCrop {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+/** Découpe centrée produite par `object-fit: cover` (aspect de la vue conservé). */
+export function coverCrop(videoW: number, videoH: number, viewW: number, viewH: number): CoverCrop {
+  const scale = Math.max(viewW / Math.max(1, videoW), viewH / Math.max(1, videoH));
+  const sw = Math.min(videoW, viewW / Math.max(1e-9, scale));
+  const sh = Math.min(videoH, viewH / Math.max(1e-9, scale));
+  return { sx: (videoW - sw) / 2, sy: (videoH - sh) / 2, sw, sh };
+}
+
+/**
+ * FOV vertical (°) de la vue visible, depuis le FOV du petit côté du capteur.
+ * En portrait la découpe garde toute la hauteur du cadre ; en paysage elle n'en
+ * garde qu'une bande centrale — le FOV d'écran est alors bien plus étroit.
+ */
+export function screenFovDeg(
+  shortSideFovDeg: number,
+  videoW: number,
+  videoH: number,
+  viewW: number,
+  viewH: number,
+): number {
+  const short = Math.max(1, Math.min(videoW, videoH));
+  const tanPerPx = Math.tan(degToRad(shortSideFovDeg) / 2) / (short / 2);
+  const { sh } = coverCrop(videoW, videoH, viewW, viewH);
+  return radToDeg(2 * Math.atan(tanPerPx * (sh / 2)));
+}
+
+/** Inverse : FOV du petit côté du capteur depuis un FOV vertical de vue mesuré. */
+export function shortSideFovDeg(
+  screenFovDeg: number,
+  videoW: number,
+  videoH: number,
+  viewW: number,
+  viewH: number,
+): number {
+  const short = Math.min(videoW, videoH);
+  const { sh } = coverCrop(videoW, videoH, viewW, viewH);
+  const tanPerPx = Math.tan(degToRad(screenFovDeg) / 2) / Math.max(1e-9, sh / 2);
+  return radToDeg(2 * Math.atan(tanPerPx * (short / 2)));
+}

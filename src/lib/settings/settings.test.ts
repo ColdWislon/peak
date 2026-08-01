@@ -7,14 +7,18 @@ describe('parseSettings', () => {
       quality: 'eco',
       units: 'imperial',
       names: 'local',
-      cameraFovDeg: 68.5,
+      cameraShortFovDeg: 68.5,
     } as const;
     expect(parseSettings(serializeSettings(settings))).toEqual(settings);
   });
 
   it('rejette un FOV caméra absurde', () => {
-    expect(parseSettings('{"cameraFovDeg":300}').cameraFovDeg).toBeNull();
-    expect(parseSettings('{"cameraFovDeg":"large"}').cameraFovDeg).toBeNull();
+    expect(parseSettings('{"cameraShortFovDeg":300}').cameraShortFovDeg).toBeNull();
+    expect(parseSettings('{"cameraShortFovDeg":"large"}').cameraShortFovDeg).toBeNull();
+  });
+
+  it('ignore l’ancien cameraFovDeg (FOV d’écran, sémantique différente)', () => {
+    expect(parseSettings('{"cameraFovDeg":68.5}').cameraShortFovDeg).toBeNull();
   });
 
   it('retombe sur les défauts pour null, JSON cassé ou valeurs inconnues', () => {
@@ -30,7 +34,7 @@ describe('parseSettings', () => {
       quality: 'auto',
       units: 'imperial',
       names: 'fr',
-      cameraFovDeg: null,
+      cameraShortFovDeg: null,
     });
   });
 

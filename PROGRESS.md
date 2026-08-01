@@ -101,6 +101,30 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       horizon plat (pénalité minuscule sur |hOff| — l'égalité prenait sinon le premier
       candidat de la grille, −25°). Testé : plaine avec biais de −5° → assiette corrigée,
       cap intact.
+- [x] Rapport terrain n° 1 (iPhone **paysage**, bord de mer — calibrage toujours refusé :
+      assiette épinglée à +8°, FOV à 40°, mae ~4,4° malgré une confiance médiane de 1,0).
+      Diagnostic reproduit par simulation sur le matcher réel ; trois corrections.
+      (a) Le calibrage analysait le **plein cadre** caméra alors qu'`object-fit: cover`
+      n'en affiche qu'une bande centrale en paysage (~58 % de la hauteur pour la vue du
+      rapport) : le premier plan **invisible à l'écran** accrochait le détecteur pendant
+      que l'utilisateur cadrait un horizon propre — il n'analyse plus que la découpe
+      visible (`lib/viser/videoView`, module pur testé). (b) Un seul nombre servait de
+      FOV vertical à la fois à l'écran (étiquettes, horizon, glissés) et au cadre caméra
+      (calibrage) — quantités incompatibles en paysage (facteur ~0,58 en tangente) :
+      étiquettes et horizon ne pouvaient pas coller à la vidéo. Le réglage persisté
+      devient `cameraShortFovDeg` (FOV du petit côté du capteur, invariant en rotation
+      d'écran ; l'ancien `cameraFovDeg` est ignoré), le FOV d'écran s'en déduit par la
+      découpe. (c) Matcher robuste : erreur par colonne plafonnée (3°) pour qu'une
+      minorité de colonnes parasites (reflets en contre-jour marin, premier plan) ne
+      tire plus assiette et FOV vers les bornes ; application seulement si la MAE des
+      colonnes concordantes ≤ 1° ET ≥ 60 % de colonnes concordantes (`isMatchReliable`,
+      testé) — un accrochage majoritaire est refusé au lieu d'appliquer un recalage faux,
+      un accrochage minoritaire n'empêche plus le verrouillage. Au passage, corrigé le
+      double chargement visible dans le journal du rapport (`start()` ET l'$effect
+      lançaient chacun `loadData` → deux « viser:donnees », deux workers) avec garde
+      anti-course pendant les await. Limite connue : le **roulis** n'est pas modélisé —
+      téléphone penché ⇒ refus propre du calibrage (mae > 1°) ; à modéliser depuis les
+      capteurs si les rapports le redemandent.
 
 - [x] Réglages (qualité de rendu, unités) — panneau ⚙ dans l'en-tête, persistés en
       localStorage ; qualité Auto/Élevée/Économique (densité du maillage + pixelRatio,

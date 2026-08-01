@@ -135,10 +135,12 @@ export interface SkylineMatch {
   pitchOffsetDeg: number;
   /** FOV vertical retenu (°) — égal à `view.fovDeg` sans estimation. */
   fovDeg: number;
-  /** Erreur absolue moyenne (°) au meilleur alignement. */
+  /** Erreur absolue moyenne (°) des colonnes concordantes au meilleur alignement. */
   maeDeg: number;
   /** Colonnes exploitées (confiance suffisante). */
   usedColumns: number;
+  /** Colonnes concordantes (erreur sous le plafond) au meilleur alignement. */
+  inlierColumns: number;
 }
 
 /** Plage d'estimation du FOV caméra (le web ne l'expose pas : on le mesure). */
@@ -197,6 +199,8 @@ export function matchSkyline(
     searchDeg?: number;
     pitchSearchDeg?: number;
     minConfidence?: number;
+    /** Plafond d'erreur par colonne (°) : au-delà, la colonne est un parasite. */
+    outlierCapDeg?: number;
     /** Si présent, le FOV est estimé en plus du cap et de l'assiette. */
     fovSearch?: FovSearch;
   } = {},
@@ -207,6 +211,10 @@ export function matchSkyline(
   // (calibration accéléromètre + fusion navigateur) : fenêtre à ±8°.
   const pitchSearchDeg = options.pitchSearchDeg ?? 8;
   const minConfidence = options.minConfidence ?? 0.35;
+  // Coût robuste : l'erreur d'une colonne est plafonnée, pour qu'une minorité
+  // accrochée sur un bord parasite (reflets, premier plan) ne tire pas tout
+  // l'alignement — cas réel du rapport terrain (mer + contre-jour).
+  const outlierCapDeg = options.outlierCapDeg ?? 3;
 
   const columns: number[] = [];
   for (let x = 0; x < detected.width; x++) {
@@ -219,41 +227,54 @@ export function matchSkyline(
     const samples = columns.map((x) =>
       pixelToAngles(x, detected.rows[x]!, detected.width, detected.height, view.pitchDeg, fovDeg),
     );
-    let match: SkylineMatch = {
-      headingOffsetDeg: 0,
-      pitchOffsetDeg: 0,
-      fovDeg,
-      maeDeg: Infinity,
-      usedColumns: samples.length,
-    };
+    let bestHOff = 0;
+    let bestPOff = 0;
     let bestCost = Infinity;
     for (let hOff = -searchDeg; hOff <= searchDeg; hOff += 0.25) {
       for (let pOff = -pitchSearchDeg; pOff <= pitchSearchDeg; pOff += 0.5) {
         let sum = 0;
         for (const s of samples) {
           const expected = demAngleDeg(demSkyline, view.headingDeg + hOff + s.azRelDeg, demStepDeg);
-          sum += Math.abs(expected - (s.elevDeg + pOff));
+          sum += Math.min(outlierCapDeg, Math.abs(expected - (s.elevDeg + pOff)));
         }
-        const mae = sum / samples.length;
+        const mean = sum / samples.length;
         // Un horizon localement rectiligne rend cap et assiette interchangeables :
         // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
         // Et sur un horizon PLAT le cap est indéterminé : la pénalité minuscule
         // sur hOff casse l'égalité vers « pas de correction de cap » au lieu du
         // premier candidat de la grille (−25°).
-        const cost = mae + 0.05 * Math.abs(pOff) + 0.001 * Math.abs(hOff);
+        const cost = mean + 0.05 * Math.abs(pOff) + 0.001 * Math.abs(hOff);
         if (cost < bestCost) {
           bestCost = cost;
-          match = {
-            headingOffsetDeg: hOff,
-            pitchOffsetDeg: pOff,
-            fovDeg,
-            maeDeg: mae,
-            usedColumns: samples.length,
-          };
+          bestHOff = hOff;
+          bestPOff = pOff;
         }
       }
     }
-    return { match, cost: bestCost };
+
+    // Statistiques du meilleur alignement, colonnes concordantes seulement :
+    // la MAE rapportée juge la qualité du verrouillage, pas les parasites.
+    let inliers = 0;
+    let inlierSum = 0;
+    for (const s of samples) {
+      const expected = demAngleDeg(demSkyline, view.headingDeg + bestHOff + s.azRelDeg, demStepDeg);
+      const err = Math.abs(expected - (s.elevDeg + bestPOff));
+      if (err < outlierCapDeg) {
+        inliers++;
+        inlierSum += err;
+      }
+    }
+    return {
+      match: {
+        headingOffsetDeg: bestHOff,
+        pitchOffsetDeg: bestPOff,
+        fovDeg,
+        maeDeg: inliers > 0 ? inlierSum / inliers : Infinity,
+        usedColumns: samples.length,
+        inlierColumns: inliers,
+      },
+      cost: bestCost,
+    };
   };
 
   if (!options.fovSearch) return evaluate(view.fovDeg).match;
@@ -286,4 +307,26 @@ export function matchSkyline(
     consider(f);
   }
   return bestOverall!.match;
+}
+
+/** MAE maximale (°) des colonnes concordantes pour appliquer un recalage.
+ *  Plus stricte que l'ancien seuil (1,5° sur TOUTES les colonnes) : la MAE des
+ *  seules concordantes d'un vrai verrouillage est ≲ 0,5° — au-delà de 1°, on
+ *  regarde probablement un horizon penché (roulis) ou un bord parasite. */
+const MAX_RELIABLE_MAE_DEG = 1.0;
+/** Part minimale de colonnes concordantes : en deçà, l'alignement suit peut-être
+ *  un bord parasite majoritaire plutôt que l'horizon (rapport terrain : reflets
+ *  en contre-jour marin accrochés bien sous l'horizon vrai). */
+const MIN_INLIER_FRACTION = 0.6;
+
+/**
+ * Un recalage ne s'applique que si l'alignement est net ET porté par une
+ * majorité franche de colonnes — une MAE basse sur une petite minorité
+ * concordante reste un verrouillage douteux.
+ */
+export function isMatchReliable(match: SkylineMatch): boolean {
+  return (
+    match.maeDeg <= MAX_RELIABLE_MAE_DEG &&
+    match.inlierColumns >= Math.ceil(MIN_INLIER_FRACTION * match.usedColumns)
+  );
 }
