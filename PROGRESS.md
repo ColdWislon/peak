@@ -143,3 +143,11 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       synthétiques (sud → Mont Blanc, est → Aiguille Verte, recalage +7°). Piège corrigé :
       `setPointerCapture` sur un conteneur retarge les `click` — ignorer les appuis sur boutons.
       (App native : option future si la précision des capteurs web déçoit.)
+- [x] Boussole du mode Viser : ruban de cap gradué en haut de la vue (graduations fines
+      tous les 5°, hautes tous les 15°, lettres cardinales tous les 45°, N en accent),
+      projeté avec la même caméra que les étiquettes — tangente du FOV horizontal, assiette
+      ignorée (affichage tête haute) — pour que « N » tombe sous les sommets plein nord ;
+      module pur `lib/viser/compass` testé (bornes du champ, symétrie, franchissement du
+      nord, espacement en tangente). Repère central + cap chiffré sous le ruban :
+      l'ancienne pastille « 245° · SO » y déménage (elle chevauchait l'en-tête sur mobile),
+      et le ruban suit capteurs, glissés de recalage et mode sans capteurs.
