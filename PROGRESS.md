@@ -143,19 +143,27 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       synthétiques (sud → Mont Blanc, est → Aiguille Verte, recalage +7°). Piège corrigé :
       `setPointerCapture` sur un conteneur retarge les `click` — ignorer les appuis sur boutons.
       (App native : option future si la précision des capteurs web déçoit.)
+- [x] Boussole du mode Viser : ruban de cap gradué en haut de la vue (graduations fines
+      tous les 5°, hautes tous les 15°, lettres cardinales tous les 45°, N en accent),
+      projeté avec la même caméra que les étiquettes — tangente du FOV horizontal, assiette
+      ignorée (affichage tête haute) — pour que « N » tombe sous les sommets plein nord ;
+      module pur `lib/viser/compass` testé (bornes du champ, symétrie, franchissement du
+      nord, espacement en tangente). Repère central + cap chiffré sous le ruban :
+      l'ancienne pastille « 245° · SO » y déménage (elle chevauchait l'en-tête sur mobile),
+      et le ruban suit capteurs, glissés de recalage et mode sans capteurs.
 - [x] PWA installable sur iPhone (« une app plutôt qu'un site ») : icône tactile 180×180
       opaque et 11 écrans de démarrage portrait générés depuis le SVG par
       `scripts/generate-ios-assets.mjs` (Playwright ; dans le bac à sable :
       `CHROMIUM_PATH=/opt/pw-browsers/chromium`), balises Apple dans index.html (titre,
       barre de statut translucide, startup-image à correspondance exacte points × densité,
       sinon iOS les ignore), zones sûres `env(safe-area-inset-*)` sur l'en-tête, le pied de
-      page et l'UI ancrée aux bords des trois vues (encoche/Dynamic Island/barre home,
-      portrait et paysage), `"id"` ajouté au manifest, coque SW passée en v2 — règle
-      établie : les fichiers publics non hachés sont épinglés cache-first, bump obligatoire
-      à chaque édition —, aide « Installer l'app » dans ⚙ visible seulement sur iOS hors
-      standalone (`lib/pwa/install`, module pur testé). Vérifié sur build de prod : balises
-      rebasées /peak/, assets servis, coque v2. Restent les vérifications sur iPhone réel :
-      installation, icône, lancement sans flash blanc, plein écran sans chevauchement de la
-      barre de statut, hors-ligne après une première session en ligne dans l'app installée
-      (stockage partitionné, distinct de Safari), caméra + capteurs du mode Viser en
-      standalone.
+      page et l'UI ancrée aux bords des trois vues, ruban de boussole compris
+      (encoche/Dynamic Island/barre home, portrait et paysage), `"id"` ajouté au manifest,
+      coque SW passée en v2 — règle établie : les fichiers publics non hachés sont épinglés
+      cache-first, bump obligatoire à chaque édition —, aide « Installer l'app » dans ⚙
+      visible seulement sur iOS hors standalone (`lib/pwa/install`, module pur testé).
+      Vérifié sur build de prod : balises rebasées /peak/, assets servis, coque v2. Restent
+      les vérifications sur iPhone réel : installation, icône, lancement sans flash blanc,
+      plein écran sans chevauchement de la barre de statut, hors-ligne après une première
+      session en ligne dans l'app installée (stockage partitionné, distinct de Safari),
+      caméra + capteurs du mode Viser en standalone.

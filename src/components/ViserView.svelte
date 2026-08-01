@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { logDebug, registerDebugProvider } from '../lib/debug/report';
   import { normalizeBearing, type LatLon } from '../lib/geo';
-  import { cardinalFor, fr } from '../lib/i18n/fr';
+  import { fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
   import { topPeaks, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
@@ -10,6 +10,7 @@
   import { tileBlockAround } from '../lib/terrain/blocks';
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
+  import { compassTicks, type CompassTick } from '../lib/viser/compass';
   import { iosCompassToAlpha, orientationToAim } from '../lib/viser/orientation';
   import {
     detectImageSkyline,
@@ -23,6 +24,7 @@
     VisibilityRequest,
     VisibilityResponse,
   } from '../lib/visibility/protocol';
+  import CompassRibbon from './CompassRibbon.svelte';
   import PeakLabels from './PeakLabels.svelte';
 
   /** Mêmes champs d'altitude que le panorama (proche z12, lointain z10). */
@@ -49,6 +51,7 @@
   let sensorless = $state(false);
   let heading = $state(0);
   let labels = $state<PlacedLabel[]>([]);
+  let compass = $state<CompassTick[]>([]);
   let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
 
   let stream: MediaStream | undefined;
@@ -113,6 +116,7 @@
         height: container.clientHeight,
       };
       labels = placeLabels(candidates, view);
+      compass = compassTicks(view);
       if (demSkyline) {
         horizonPoints = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view)
           .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
@@ -241,6 +245,7 @@
     // charge — l'appeler ici aussi doublait chargement et worker (deux
     // « viser:donnees » dans les rapports de débogage).
     phase = 'running';
+    relayout(); // La boussole s'affiche sans attendre le premier événement capteur.
   }
 
   /** Recalage automatique : aligne l'horizon détecté sur le profil du relief. */
@@ -455,9 +460,7 @@
   <PeakLabels {labels} />
 
   {#if phase === 'running'}
-    <div class="hud" aria-live="off">
-      {Math.round(heading)}° · {cardinalFor(heading)}
-    </div>
+    <CompassRibbon ticks={compass} headingDeg={heading} />
     <p class="hint">{sensorless ? fr.viser.dragHint : fr.viser.calibrateHint}</p>
 
     {#if demSkyline && !sensorless}
@@ -510,20 +513,6 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-  }
-
-  .hud {
-    position: absolute;
-    top: calc(0.75rem + var(--safe-top));
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
-    border: 1px solid var(--border);
-    font-variant-numeric: tabular-nums;
-    font-size: 0.9rem;
-    pointer-events: none;
   }
 
   .horizon {
@@ -599,7 +588,8 @@
 
   .peaks-status {
     position: absolute;
-    top: calc(3.1rem + var(--safe-top));
+    /* Sous le ruban de boussole et son cap chiffré. */
+    top: calc(7.4rem + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
