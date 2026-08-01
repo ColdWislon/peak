@@ -96,9 +96,9 @@
 
   header {
     position: absolute;
-    top: 0.65rem;
-    left: 0.9rem;
-    right: 0.9rem;
+    top: calc(0.65rem + var(--safe-top));
+    left: calc(0.9rem + var(--safe-left));
+    right: calc(0.9rem + var(--safe-right));
     z-index: 3;
     display: flex;
     align-items: center;
@@ -144,7 +144,7 @@
     left: 0;
     right: 0;
     z-index: 2;
-    padding: 0.3rem 0.75rem;
+    padding: 0.3rem 0.75rem calc(0.3rem + var(--safe-bottom));
     background: color-mix(in srgb, var(--bg) 62%, transparent);
     color: var(--muted);
     font-size: 0.68rem;

@@ -29,7 +29,7 @@
 <style>
   .compass {
     position: absolute;
-    top: 3rem;
+    top: calc(3rem + var(--safe-top));
     left: 0;
     right: 0;
     display: flex;

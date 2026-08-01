@@ -7,7 +7,9 @@
  * Écrit à la main : pas de manifeste de précache, le cache se remplit à l'usage.
  */
 
-const SHELL_CACHE = 'cimes-coque-v1';
+// Bump du suffixe à chaque édition d'un fichier public non haché (manifest, sw.js…) :
+// la stratégie cache-first les épingle sinon pour toujours chez les clients existants.
+const SHELL_CACHE = 'cimes-coque-v2';
 const TILE_CACHE = 'cimes-tuiles-v1';
 const TILE_HOST = 's3.amazonaws.com';
 const MAX_TILE_ENTRIES = 600;

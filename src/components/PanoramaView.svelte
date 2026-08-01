@@ -251,7 +251,7 @@
 
   .hud {
     position: absolute;
-    top: 0.75rem;
+    top: calc(0.75rem + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     padding: 0.3rem 0.9rem;
@@ -265,7 +265,7 @@
 
   .peaks-status {
     position: absolute;
-    top: 3.1rem;
+    top: calc(3.1rem + var(--safe-top));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -297,7 +297,7 @@
   .card {
     position: absolute;
     left: 50%;
-    bottom: 2.4rem;
+    bottom: calc(2.4rem + var(--safe-bottom));
     transform: translateX(-50%);
     min-width: 14rem;
     max-width: min(22rem, 90vw);
