@@ -129,6 +129,19 @@
     border-color: var(--accent);
   }
 
+  /* Écrans étroits : la recherche occupe sa propre rangée de l'en-tête. */
+  @media (max-width: 640px) {
+    input {
+      flex: 1;
+      width: auto;
+      min-width: 0;
+    }
+
+    .results {
+      width: 100%;
+    }
+  }
+
   .locate {
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--border);

@@ -23,6 +23,19 @@ describe('coverCrop', () => {
     const crop = coverCrop(640, 480, 320, 240);
     expect(crop).toEqual({ sx: 0, sy: 0, sw: 640, sh: 480 });
   });
+
+  it('zoom ×2 : découpe deux fois plus petite, toujours centrée', () => {
+    const z1 = coverCrop(640, 480, 320, 240);
+    const z2 = coverCrop(640, 480, 320, 240, 2);
+    expect(z2.sw).toBeCloseTo(z1.sw / 2, 6);
+    expect(z2.sh).toBeCloseTo(z1.sh / 2, 6);
+    expect(z2.sx + z2.sw / 2).toBeCloseTo(320, 6); // centre inchangé
+    expect(z2.sy + z2.sh / 2).toBeCloseTo(240, 6);
+  });
+
+  it('un zoom < 1 est ramené à 1 (pas de dézoom au-delà du cadre)', () => {
+    expect(coverCrop(640, 480, 320, 240, 0.5)).toEqual(coverCrop(640, 480, 320, 240));
+  });
 });
 
 describe('screenFovDeg / shortSideFovDeg', () => {
@@ -53,5 +66,17 @@ describe('screenFovDeg / shortSideFovDeg', () => {
     const portrait = screenFovDeg(55, 480, 640, 480, 640);
     expect(landscape).toBeCloseTo(55, 6);
     expect(portrait).toBeGreaterThan(55); // grand côté vertical en portrait
+  });
+
+  it('zoom : le FOV se resserre en espace tangente (focale multipliée)', () => {
+    const f1 = screenFovDeg(55, 640, 480, 750, 326);
+    const f3 = screenFovDeg(55, 640, 480, 750, 326, 3);
+    const degToRad = (d: number) => (d * Math.PI) / 180;
+    expect(Math.tan(degToRad(f3) / 2)).toBeCloseTo(Math.tan(degToRad(f1) / 2) / 3, 9);
+  });
+
+  it('aller-retour exact aussi sous zoom', () => {
+    const screen = screenFovDeg(62, 640, 480, 750, 326, 2.5);
+    expect(shortSideFovDeg(screen, 640, 480, 750, 326, 2.5)).toBeCloseTo(62, 6);
   });
 });

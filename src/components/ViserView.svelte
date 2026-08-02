@@ -41,6 +41,9 @@
   const PEAKS_LIMIT = 300;
   /** Pas d'azimut du profil d'horizon théorique (°). */
   const SKYLINE_STEP_DEG = 0.5;
+  /** Zoom numérique : ×1 (optique nue) à ×4 (au-delà, bouillie de pixels). */
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 4;
 
   let { viewpoint }: { viewpoint: LatLon } = $props();
 
@@ -71,6 +74,8 @@
   let calibrating = $state(false);
   let calibMessage = $state<string | null>(null);
   let calibTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Zoom numérique courant : la vidéo est agrandie en CSS, le FOV suit. */
+  let zoom = $state(1);
   let gotSensor = false;
   let relayoutQueued = false;
   let lastRawOrientation: Record<string, unknown> | null = null;
@@ -82,10 +87,10 @@
 
   /**
    * FOV vertical de la VUE : la vidéo est affichée en `object-fit: cover`, donc
-   * l'écran ne montre qu'une découpe du cadre caméra. En paysage cette découpe
-   * est une bande centrale — son FOV vertical est bien plus étroit que celui du
-   * capteur ; toutes les projections (étiquettes, horizon, glissés, calibrage)
-   * partagent cette valeur-là.
+   * l'écran ne montre qu'une découpe du cadre caméra — encore resserrée par le
+   * zoom numérique. En paysage cette découpe est une bande centrale — son FOV
+   * vertical est bien plus étroit que celui du capteur ; toutes les projections
+   * (étiquettes, horizon, glissés, calibrage) partagent cette valeur-là.
    */
   function currentScreenFov(): number {
     if (!video || !container || video.videoWidth === 0 || container.clientHeight === 0) {
@@ -97,6 +102,7 @@
       video.videoHeight,
       container.clientWidth,
       container.clientHeight,
+      zoom,
     );
   }
 
@@ -257,10 +263,11 @@
       const viewW = container.clientWidth;
       const viewH = container.clientHeight;
       // N'analyser que la partie du flux réellement affichée (`object-fit:
-      // cover`) : en paysage, le plein cadre 4:3 déborde beaucoup de l'écran et
-      // son premier plan invisible (rochers, reflets) accroche le détecteur
-      // alors que l'utilisateur cadre un horizon propre — cf. rapport terrain.
-      const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH);
+      // cover`, zoom compris) : en paysage, le plein cadre 4:3 déborde beaucoup
+      // de l'écran et son premier plan invisible (rochers, reflets) accroche le
+      // détecteur alors que l'utilisateur cadre un horizon propre — cf. rapport
+      // terrain.
+      const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH, zoom);
       const width = 240;
       const height = Math.max(60, Math.round((width * viewH) / Math.max(1, viewW)));
       const canvas = document.createElement('canvas');
@@ -273,7 +280,7 @@
 
       const screenFov = currentScreenFov();
       const boundFov = (shortSide: number) =>
-        screenFovDeg(shortSide, video.videoWidth, video.videoHeight, viewW, viewH);
+        screenFovDeg(shortSide, video.videoWidth, video.videoHeight, viewW, viewH, zoom);
       const detected = detectImageSkyline(image.data, width, height);
       const match = matchSkyline(
         detected,
@@ -300,6 +307,7 @@
           max: Number(conf[conf.length - 1]?.toFixed(2)),
         },
         fovEcran: Number(screenFov.toFixed(1)),
+        zoom: Number(zoom.toFixed(2)),
         recadrage: {
           sx: Math.round(crop.sx),
           sy: Math.round(crop.sy),
@@ -335,6 +343,7 @@
             video.videoHeight,
             viewW,
             viewH,
+            zoom,
           );
           settings.cameraShortFovDeg = Math.min(100, Math.max(30, Math.round(measured * 2) / 2));
           saveSettings();
@@ -351,20 +360,53 @@
     calibTimer = setTimeout(() => (calibMessage = null), 4000);
   }
 
-  // Glissé : recalage de la boussole, ou visée complète sans capteurs.
+  // Glissé un doigt : recalage de la boussole, ou visée complète sans capteurs.
+  // Pincement deux doigts : zoom numérique. Molette : idem au bureau.
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchStart: { distance: number; zoom: number } | null = null;
+
+  function pinchDistance(): number {
+    const [a, b] = [...pointers.values()];
+    if (!a || !b) return 1;
+    return Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+  }
+
+  function setZoom(next: number): void {
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    // Accroche à ×1 : un pincement relâché près du minimum retrouve l'optique nue.
+    zoom = clamped < 1.02 ? 1 : clamped;
+    relayout();
+  }
+
   function onDown(e: PointerEvent): void {
     // La capture du pointeur retargetterait le click : ne pas voler les boutons.
     if ((e.target as HTMLElement | null)?.closest('button')) return;
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    container.setPointerCapture(e.pointerId);
+    try {
+      container.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointeur déjà relâché : le suivi ci-dessous fonctionne sans capture.
+    }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      dragging = false;
+      pinchStart = { distance: pinchDistance(), zoom };
+    } else if (pointers.size === 1) {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    }
   }
   function onMove(e: PointerEvent): void {
-    if (!dragging || phase !== 'running') return;
+    if (phase !== 'running' || !pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchStart && pointers.size === 2) {
+      setZoom(pinchStart.zoom * (pinchDistance() / pinchStart.distance));
+      return;
+    }
+    if (!dragging) return;
     const degPerPx = currentScreenFov() / Math.max(1, container.clientHeight);
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
@@ -383,11 +425,30 @@
     }
     relayout();
   }
-  function onUp(): void {
-    dragging = false;
+  function onUp(e: PointerEvent): void {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = null;
+    const rest = [...pointers.values()][0];
+    if (pointers.size === 1 && rest) {
+      // Le doigt restant du pincement reprend le glissé sans à-coup.
+      dragging = true;
+      lastX = rest.x;
+      lastY = rest.y;
+    } else if (pointers.size === 0) {
+      dragging = false;
+    }
   }
 
   onMount(() => {
+    // Molette (bureau) : zoom continu ; non passif pour bloquer le zoom de la
+    // page sur les trackpads (pincement → wheel + ctrlKey).
+    const onWheel = (e: WheelEvent) => {
+      if (phase !== 'running') return;
+      e.preventDefault();
+      setZoom(zoom * Math.exp(-e.deltaY * 0.001));
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+
     const unregister = registerDebugProvider('viser', () => ({
       phase,
       sansCapteurs: sensorless,
@@ -400,6 +461,7 @@
       },
       fovEcran: Number(currentScreenFov().toFixed(1)),
       fovPetitCote: shortFov(),
+      zoom: Number(zoom.toFixed(2)),
       video: video ? { w: video.videoWidth, h: video.videoHeight } : null,
       conteneur: container ? { w: container.clientWidth, h: container.clientHeight } : null,
       statutSommets: peaksStatus,
@@ -410,6 +472,7 @@
     }));
     return () => {
       unregister();
+      container.removeEventListener('wheel', onWheel);
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
       window.removeEventListener('deviceorientation', onOrientation as EventListener);
@@ -444,7 +507,11 @@
   onpointercancel={onUp}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={video} playsinline muted></video>
+  <video bind:this={video} playsinline muted style:transform="scale({zoom})"></video>
+
+  {#if phase === 'running' && zoom > 1}
+    <div class="zoom-badge" aria-hidden="true">{zoom.toFixed(1).replace('.', ',')}×</div>
+  {/if}
 
   {#if horizonPoints && phase === 'running'}
     <svg
@@ -513,6 +580,23 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    /* Le zoom numérique agrandit la découpe `cover` autour de son centre —
+       même convention que coverCrop(zoom) côté projections et calibrage. */
+    transform-origin: center;
+  }
+
+  .zoom-badge {
+    position: absolute;
+    top: 50%;
+    right: calc(0.75rem + var(--safe-right));
+    transform: translateY(-50%);
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 62%, transparent);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+    pointer-events: none;
   }
 
   .horizon {

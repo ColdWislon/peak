@@ -145,6 +145,27 @@
           <textarea class="report-text" readonly rows="6">{reportFallback}</textarea>
         {/if}
       </fieldset>
+
+      <!-- Attributions ODbL/OSM et tuiles : affichées dans l'app (décision n° 14
+           du PLAN.md) — ici plutôt qu'en pied de page permanent. -->
+      <fieldset>
+        <legend>{fr.attributions.intro}</legend>
+        <p class="credits">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+            {fr.attributions.osm}
+          </a><br />
+          <a
+            href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            {fr.attributions.terrain}
+          </a><br />
+          <a href="https://openfreemap.org" target="_blank" rel="noreferrer">
+            {fr.attributions.basemap}
+          </a>
+        </p>
+      </fieldset>
     </div>
   {/if}
 </div>
@@ -176,6 +197,9 @@
     top: calc(100% + 0.4rem);
     right: 0;
     width: 15rem;
+    /* Le panneau s'est allongé (attributions) : défile sur les petits écrans. */
+    max-height: min(70vh, 32rem);
+    overflow-y: auto;
     padding: 0.8rem 1rem;
     border: 1px solid var(--border);
     border-radius: 0.6rem;
@@ -256,5 +280,19 @@
     font-family: monospace;
     font-size: 0.65rem;
     resize: vertical;
+  }
+
+  .credits {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+
+  .credits a {
+    color: var(--muted);
+  }
+
+  .credits a:hover {
+    color: var(--accent);
   }
 </style>

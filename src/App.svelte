@@ -63,27 +63,6 @@
   {:else}
     <ViserView {viewpoint} />
   {/if}
-
-  {#if mode !== 'carte'}
-    <footer>
-      {fr.attributions.intro}
-      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
-        {fr.attributions.osm}
-      </a>
-      ·
-      <a
-        href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md"
-        target="_blank"
-        rel="noreferrer"
-      >
-        {fr.attributions.terrain}
-      </a>
-      ·
-      <a href="https://openfreemap.org" target="_blank" rel="noreferrer">
-        {fr.attributions.basemap}
-      </a>
-    </footer>
-  {/if}
 </div>
 
 <style>
@@ -138,16 +117,26 @@
     color: var(--text);
   }
 
-  footer {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 2;
-    padding: 0.3rem 0.75rem calc(0.3rem + var(--safe-bottom));
-    background: color-mix(in srgb, var(--bg) 62%, transparent);
-    color: var(--muted);
-    font-size: 0.68rem;
-    text-align: center;
+  /* Portrait / écrans étroits : l'en-tête en une seule ligne flottante ne
+     tient pas. Il repasse dans le flux (la vue commence dessous, plus aucun
+     chevauchement avec le HUD ni la boussole) et s'enroule sur deux rangées :
+     titre + modes + réglages, puis la recherche en pleine largeur. */
+  @media (max-width: 640px) {
+    header {
+      position: relative;
+      top: 0;
+      left: 0;
+      right: 0;
+      flex-wrap: wrap;
+      row-gap: 0.55rem;
+      column-gap: 0.6rem;
+      padding: calc(0.65rem + var(--safe-top)) calc(0.9rem + var(--safe-right)) 0.65rem
+        calc(0.9rem + var(--safe-left));
+    }
+
+    header :global(.search) {
+      order: 4;
+      flex: 1 1 100%;
+    }
   }
 </style>
