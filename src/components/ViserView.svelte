@@ -10,8 +10,8 @@
   import { tileBlockAround } from '../lib/terrain/blocks';
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
+  import { AimFilter } from '../lib/viser/aimFilter';
   import { compassTicks, type CompassTick } from '../lib/viser/compass';
-  import { iosCompassToAlpha, orientationToAim } from '../lib/viser/orientation';
   import {
     detectImageSkyline,
     isMatchReliable,
@@ -79,6 +79,10 @@
   let gotSensor = false;
   let relayoutQueued = false;
   let lastRawOrientation: Record<string, unknown> | null = null;
+  /** Stabilise le cap (boussole iOS illisible téléphone à la verticale). */
+  let aimFilter = new AimFilter();
+  /** Dernier événement absolu vu : le flux relatif d'Android est alors ignoré. */
+  let lastAbsoluteMs = Number.NEGATIVE_INFINITY;
 
   /** FOV petit côté du capteur : le web ne l'expose pas — étalonné, persisté. */
   function shortFov(): number {
@@ -136,19 +140,33 @@
 
   function onOrientation(event: DeviceOrientationEvent): void {
     const compass = (event as { webkitCompassHeading?: number }).webkitCompassHeading;
+    const accuracy = (event as { webkitCompassAccuracy?: number }).webkitCompassAccuracy;
     if (event.alpha === null || event.beta === null || event.gamma === null) return;
+    // Boussole iOS non étalonnée (accuracy < 0) : traitée comme absente.
+    const hasCompass =
+      typeof compass === 'number' && (typeof accuracy !== 'number' || accuracy >= 0);
+    // Android émet deux flux (absolu + relatif) dont les origines de cap
+    // diffèrent — les mélanger ferait sauter la visée. Tant que le flux
+    // absolu vit, les événements relatifs sans boussole iOS sont écartés.
+    if (event.absolute) lastAbsoluteMs = event.timeStamp;
+    else if (!hasCompass && event.timeStamp - lastAbsoluteMs < 1000) return;
     lastRawOrientation = {
       alpha: event.alpha,
       beta: event.beta,
       gamma: event.gamma,
-      boussoleWebkit: compass ?? null,
-      absolu: event.type === 'deviceorientationabsolute',
+      boussoleWebkit: hasCompass ? compass : null,
+      absolu: event.absolute,
     };
     if (!gotSensor) logDebug('viser:capteurs', lastRawOrientation);
     gotSensor = true;
     sensorless = false;
-    const alpha = typeof compass === 'number' ? iosCompassToAlpha(compass) : event.alpha;
-    const next = orientationToAim(alpha, event.beta, event.gamma);
+    const next = aimFilter.update({
+      alphaDeg: event.alpha,
+      betaDeg: event.beta,
+      gammaDeg: event.gamma,
+      compassDeg: hasCompass ? compass : null,
+      timeMs: event.timeStamp,
+    });
     aim = { heading: next.headingDeg, pitch: next.pitchDeg };
     relayout();
   }
@@ -242,6 +260,9 @@
       errorMessage = fr.viser.cameraError;
       return;
     }
+    // Session capteurs neuve : le décalage boussole appris repart de zéro.
+    aimFilter = new AimFilter();
+    lastAbsoluteMs = Number.NEGATIVE_INFINITY;
     window.addEventListener('deviceorientationabsolute', onOrientation as EventListener);
     window.addEventListener('deviceorientation', onOrientation as EventListener);
     setTimeout(() => {
@@ -458,6 +479,13 @@
       recalages: {
         cap: Number(headingOffset.toFixed(1)),
         assiette: Number(pitchOffset.toFixed(1)),
+      },
+      filtreBoussole: {
+        decalage:
+          aimFilter.compassOffsetDeg === null
+            ? null
+            : Number(aimFilter.compassOffsetDeg.toFixed(1)),
+        poids: Number(aimFilter.compassWeight.toFixed(2)),
       },
       fovEcran: Number(currentScreenFov().toFixed(1)),
       fovPetitCote: shortFov(),

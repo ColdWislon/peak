@@ -184,3 +184,19 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       déjà relâché — vu en pointeurs synthétiques). Vérifié au navigateur (Playwright,
       caméra simulée par canvas) : molette jusqu'à la butée ×4, pincements ×2,6 → ×1,3 →
       retour ×1 badge masqué, transform vidéo cohérente, en-tête portrait et réglages OK.
+- [x] Rapport terrain : boussole instable téléphone à la verticale (la pose du viseur).
+      Cause : `webkitCompassHeading` iOS est l'azimut du HAUT de l'appareil — à la
+      verticale, le haut pointe le zénith, sa projection horizontale n'est que du bruit,
+      et cette valeur remplaçait α à chaque événement. Correction : filtre complémentaire
+      (`lib/viser/aimFilter`, module pur testé) — le gyroscope (α relatif, β, γ, doux dans
+      cette pose) porte la dynamique image par image ; la boussole n'apprend que le
+      DÉCALAGE vers le nord vrai, pondéré cos β (1 à plat, 0 à la verticale, nul au-delà
+      où l'azimut du haut se retourne de 180°), convergence ~3 s à plat ; lissage de
+      sortie par l'arc court (τ = 0,1 s) avec saut direct au-delà de 45° ; boussole
+      d'`accuracy` négative (non étalonnée) ignorée. Au passage : les deux flux Android
+      (absolu + relatif, origines de cap différentes) ne sont plus mélangés — le relatif
+      est écarté tant que le flux absolu vit. Décalage appris et poids courant exposés au
+      rapport de débogage (`filtreBoussole`). Vérifié au navigateur (événements iOS
+      synthétiques) : pose inclinée → « 90° · E » appris immédiatement ; à la verticale,
+      boussole battant de ±40° → cap affiché strictement stable sur 150 événements, et la
+      rotation au gyroscope continue de suivre (tests unitaires du module).
