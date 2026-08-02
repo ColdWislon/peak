@@ -86,26 +86,30 @@ export function normalizeLon(lon: number): number {
 }
 
 /**
- * Projection locale équirectangulaire : coordonnées est/nord (m) de `point`
- * dans le repère tangent centré sur `origin`. Précise largement sous les 100 km
- * qui nous concernent (cosinus pris à la latitude moyenne).
+ * Projection locale azimutale équidistante : coordonnées est/nord (m) de `point`
+ * dans le repère tangent centré sur `origin`. Fidèle en cap ET en distance
+ * depuis l'origine — atan2(est, nord) est le cap initial vrai du grand cercle,
+ * hypot(est, nord) la distance orthodromique. C'est exactement la géométrie
+ * apparente d'un observateur : l'équirectangulaire utilisée auparavant
+ * gauchissait les caps lointains (±0,4° à 90 km vers l'est ou l'ouest à 46° de
+ * latitude, en tan(lat)·d²), décalant horizon calculé et étiquettes du même
+ * angle par rapport aux sommets réels.
  */
 export function localEastNorth(origin: LatLon, point: LatLon): { east: number; north: number } {
-  const midLat = degToRad((origin.lat + point.lat) / 2);
-  const east = EARTH_RADIUS_M * degToRad(point.lon - origin.lon) * Math.cos(midLat);
-  const north = EARTH_RADIUS_M * degToRad(point.lat - origin.lat);
-  return { east, north };
+  const s = haversineDistance(origin, point);
+  const bearing = degToRad(initialBearing(origin, point));
+  return { east: s * Math.sin(bearing), north: s * Math.cos(bearing) };
 }
 
 /**
- * Inverse de `localEastNorth` : le point situé à (east, north) mètres du repère
- * tangent centré sur `origin`. Exactement réciproque (même latitude moyenne).
+ * Inverse de `localEastNorth` : le point atteint depuis `origin` en suivant le
+ * cap atan2(est, nord) sur hypot(est, nord) mètres d'orthodromie. Exactement
+ * réciproque (mêmes formules de grand cercle).
  */
 export function localToLatLon(origin: LatLon, east: number, north: number): LatLon {
-  const lat = origin.lat + radToDeg(north / EARTH_RADIUS_M);
-  const midLat = degToRad((origin.lat + lat) / 2);
-  const lon = origin.lon + radToDeg(east / (EARTH_RADIUS_M * Math.cos(midLat)));
-  return { lat, lon: normalizeLon(lon) };
+  const s = Math.hypot(east, north);
+  if (s === 0) return { lat: origin.lat, lon: origin.lon };
+  return destinationPoint(origin, radToDeg(Math.atan2(east, north)), s);
 }
 
 /**

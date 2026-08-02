@@ -200,3 +200,24 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       synthétiques) : pose inclinée → « 90° · E » appris immédiatement ; à la verticale,
       boussole battant de ±40° → cap affiché strictement stable sur 150 événements, et la
       rotation au gyroscope continue de suivre (tests unitaires du module).
+- [x] Revue « l'horizon généré ne colle pas au vrai » : biais systématique d'azimut
+      identifié dans la projection locale équirectangulaire (`localEastNorth` /
+      `localToLatLon`) — elle ne préserve pas les caps : une crête à 90 km plein est
+      était placée à ~0,4° au sud de son cap apparent réel (l'erreur croît en
+      tan(latitude)·distance², signes opposés à l'est et à l'ouest du nord — donc
+      inrattrapable par un recalage de cap, qui est global). Horizon calculé, étiquettes
+      de sommets et panorama 3D glissaient tous du même gauchissement par rapport aux
+      sommets réels. Correction : la projection locale devient azimutale équidistante —
+      atan2(est, nord) = cap initial vrai du grand cercle, hypot = distance orthodromique
+      (`initialBearing`/`haversineDistance` à l'aller, `destinationPoint` au retour,
+      réciprocité exacte) — mêmes signatures, aucun appelant modifié. Par construction :
+      bacs du profil d'horizon = caps vrais, azimuts d'étiquettes = caps vrais, et la
+      marche de visibilité suit désormais la trace au sol exacte du rayon lumineux
+      œil→sommet. Coût : quelques appels trigonométriques de plus par échantillon,
+      dans les workers uniquement, une fois par point de vue. Validé par un harnais de
+      revue jetable contre une référence sphérique exacte (grand cercle + rayon effectif) :
+      gauchissement 0,000° à toutes distances/caps après correction (0,42° avant),
+      élévations à ≤ 0,001°, polyligne écran à ≤ 0,2 px de la silhouette de référence ;
+      aller-retour `projectToScreen` ↔ `pixelToAngles` exact au passage. Reste en
+      connaissance : la verticale du modèle reste la normale sphérique (déviation de la
+      verticale et géoïde ignorés, < 0,01° dans les Alpes).
