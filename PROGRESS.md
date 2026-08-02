@@ -221,3 +221,30 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       aller-retour `projectToScreen` ↔ `pixelToAngles` exact au passage. Reste en
       connaissance : la verticale du modèle reste la normale sphérique (déviation de la
       verticale et géoïde ignorés, < 0,01° dans les Alpes).
+- [x] Vérification de bout en bout de l'horizon (`npm run test:e2e`, opt-in
+      `CIMES_E2E=1`, hors du `npm test` courant) — deux étages au-dessus des tests
+      unitaires. (1) **Données réelles** : les vraies tuiles AWS Terrain Tiles autour de
+      Chamonix traversent la chaîne de production (assemblage → champ géoréférencé →
+      échantillonneur fondu → profil d'horizon) ; l'œil ressort à l'altitude de la
+      vallée, et le Mont Blanc comme l'Aiguille du Midi (sommets « dominants » de leur
+      rayon) tombent à leur cap vrai (± 0,6°) et à leur angle d'élévation vrai
+      (−0,9/+0,3°) ; l'Aiguille Verte, masquée par la crête du Montenvers depuis le
+      centre-ville, ne vérifie que le plancher. Attrape géoréférencement, décodage
+      terrarium et couture de blocs sur données vivantes ; tuiles en cache disque,
+      téléchargement par curl. (2) **Navigateur** : le build de production tourne dans
+      Chromium (Playwright) — tuiles d'altitude et Overpass simulés depuis un monde
+      synthétique analytique, caméra remplacée par un canvas qui « filme » la silhouette
+      de référence exacte (grand cercle, rayon effectif), capteurs
+      `deviceorientationabsolute` synthétiques. Mesuré sur CAPTURES D'ÉCRAN : la
+      polyligne rouge épouse l'horizon visible de la vidéo (médiane 1 px, p90 2 px sur
+      ~170 colonnes), l'étiquette du sommet s'ancre sur la crête (± 7 px, repère fenêtre
+      vs conteneur Viser converti), puis un biais capteurs injecté (+6° cap, −3°
+      assiette) fait visiblement décrocher la ligne (> 10 px) et « Recaler sur
+      l'horizon » l'annonce (−6°) et la rattrape (≤ 4,5 px). Chromium de l'environnement
+      en repli si la révision Playwright n'est pas provisionnée. Outillage dédié :
+      codec PNG minimal Node (zlib), monde synthétique partagé tuile/référence
+      (`src/e2e/`), `tsconfig.e2e.json` typé Node (le tsconfig app exclut `src/e2e`).
+      Répartition assumée : le gauchissement d'azimut fin (~0,2° à ces distances) reste
+      épinglé par le test unitaire de `localEastNorth` et le cap vrai des sommets réels ;
+      l'étage navigateur couvre tout le reste de la chaîne (FOV/découpe `cover`, capteurs,
+      workers, projection, SVG, calibrage) au pixel près.
