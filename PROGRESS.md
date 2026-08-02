@@ -167,3 +167,20 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       plein écran sans chevauchement de la barre de statut, hors-ligne après une première
       session en ligne dans l'app installée (stockage partitionné, distinct de Safari),
       caméra + capteurs du mode Viser en standalone.
+- [x] Retours d'usage mobile : (a) plus de pied de page de crédits — les attributions
+      ODbL/OSM/tuiles (décision n° 14 : elles restent affichées dans l'app) déménagent
+      dans le panneau ⚙, section « Données » ; le panneau plafonne sa hauteur et défile.
+      (b) Portrait pris en charge : sous 640 px l'en-tête quitte le flottant une-ligne
+      (qui débordait) et repasse dans le flux sur deux rangées — titre + modes + ⚙,
+      recherche en pleine largeur dessous — la vue commence sous l'en-tête, plus aucun
+      chevauchement avec HUD/boussole, zones sûres conservées. (c) Zoom du mode Viser :
+      pincement à deux doigts (molette au bureau), numérique ×1 à ×4 (`scale()` CSS
+      centré sur la vidéo) ; le FOV de vue suit en espace tangente — `coverCrop`,
+      `screenFovDeg` et `shortSideFovDeg` prennent un facteur de zoom (testés) — donc
+      étiquettes, ruban de boussole, horizon et glissés restent alignés sous zoom, et le
+      calibrage automatique analyse la découpe zoomée réellement visible puis re-mesure
+      le FOV capteur en dézoomant sa conversion. Badge « 2,4× » (virgule française),
+      accroche à ×1 en fin de pincement ; `setPointerCapture` toléré en échec (pointeur
+      déjà relâché — vu en pointeurs synthétiques). Vérifié au navigateur (Playwright,
+      caméra simulée par canvas) : molette jusqu'à la butée ×4, pincements ×2,6 → ×1,3 →
+      retour ×1 badge masqué, transform vidéo cohérente, en-tête portrait et réglages OK.

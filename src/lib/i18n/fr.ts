@@ -71,7 +71,7 @@ export const fr = {
     seePanorama: 'Voir le panorama d’ici',
   },
   attributions: {
-    intro: 'Données :',
+    intro: 'Données',
     osm: '© contributeurs OpenStreetMap',
     terrain: 'Tuiles d’élévation AWS/Mapzen',
     basemap: 'Fond de carte OpenFreeMap',
