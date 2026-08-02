@@ -525,7 +525,8 @@
 
   .horizon polyline {
     fill: none;
-    stroke: var(--accent);
+    /* Rouge plutôt que l'accent bleu : se détache du ciel comme des reflets bleutés. */
+    stroke: #ff453a;
     stroke-width: 1.5;
     stroke-linejoin: round;
     opacity: 0.85;
