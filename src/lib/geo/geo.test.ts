@@ -81,15 +81,26 @@ describe('localEastNorth', () => {
     });
     const expected =
       ((EARTH_RADIUS_M * Math.PI * 0.01) / 180) * Math.cos((CHAMONIX.lat * Math.PI) / 180);
-    expect(north).toBeCloseTo(0, 6);
+    // Le grand cercle vers un point de même latitude part un soupçon au nord
+    // de 90° : nord petit mais non nul (~5 cm ici), est au cosinus près.
+    expect(Math.abs(north)).toBeLessThan(0.1);
     expect(east).toBeCloseTo(expected, 3);
   });
 
-  it('reste cohérente avec haversine à 50 km (écart < 0,1 %)', () => {
+  it('est fidèle en distance (hypot = orthodromie) à 50 km', () => {
     const dest = destinationPoint(CHAMONIX, 235, 50_000);
     const { east, north } = localEastNorth(CHAMONIX, dest);
-    const planar = Math.hypot(east, north);
-    expect(Math.abs(planar - 50_000) / 50_000).toBeLessThan(0.001);
+    expect(Math.hypot(east, north)).toBeCloseTo(50_000, 3);
+  });
+
+  it('est fidèle au cap initial vrai, même à 90 km', () => {
+    // L'équirectangulaire gauchissait ce cap de ~0,35° : horizon calculé et
+    // étiquettes glissaient d'autant par rapport aux sommets réels.
+    const dest = destinationPoint(CHAMONIX, 60, 90_000);
+    const { east, north } = localEastNorth(CHAMONIX, dest);
+    const bearing = normalizeBearing((Math.atan2(east, north) * 180) / Math.PI);
+    expect(bearing).toBeCloseTo(60, 6);
+    expect(Math.hypot(east, north)).toBeCloseTo(90_000, 3);
   });
 });
 
