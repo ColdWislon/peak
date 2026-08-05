@@ -12,6 +12,7 @@
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { AimFilter } from '../lib/viser/aimFilter';
   import { compassTicks, type CompassTick } from '../lib/viser/compass';
+  import { priorShortFovDeg, type FovPrior } from '../lib/viser/deviceFov';
   import {
     detectImageSkyline,
     isMatchReliable,
@@ -32,7 +33,8 @@
   const OUTER = { zoom: 10, radiusM: 115_000 };
   /** Téléphone tenu à la main. */
   const EYE_HEIGHT_M = 1.7;
-  /** FOV du petit côté du capteur par défaut, remplacé par la mesure au recalage. */
+  /** FOV petit côté par défaut (flux 4:3, appareil inconnu) — supplanté par
+   *  l'a priori appareil/aspect au démarrage, puis par la mesure au recalage. */
   const DEFAULT_SHORT_FOV_DEG = 55;
   /** Plage plausible du FOV petit côté (smartphones), bornes de l'estimation. */
   const SHORT_FOV_MIN_DEG = 40;
@@ -83,10 +85,31 @@
   let aimFilter = new AimFilter();
   /** Dernier événement absolu vu : le flux relatif d'Android est alors ignoré. */
   let lastAbsoluteMs = Number.NEGATIVE_INFINITY;
+  /** A priori de FOV déduit de l'appareil et du flux (avant tout calibrage). */
+  let fovPrior: FovPrior | null = null;
 
-  /** FOV petit côté du capteur : le web ne l'expose pas — étalonné, persisté. */
+  /**
+   * FOV petit côté du capteur : le web ne l'expose pas. Priorité : la mesure
+   * par l'horizon (persistée), sinon l'a priori appareil + aspect du flux,
+   * sinon le défaut historique.
+   */
   function shortFov(): number {
-    return settings.cameraShortFovDeg ?? DEFAULT_SHORT_FOV_DEG;
+    return settings.cameraShortFovDeg ?? fovPrior?.shortFovDeg ?? DEFAULT_SHORT_FOV_DEG;
+  }
+
+  /** Modèle d'appareil (Client Hints Android/Chromium) ; Safari n'expose rien. */
+  async function deviceModel(): Promise<string | null> {
+    const uaData = (
+      navigator as {
+        userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ model?: string }> };
+      }
+    ).userAgentData;
+    if (!uaData?.getHighEntropyValues) return null;
+    try {
+      return (await uaData.getHighEntropyValues(['model'])).model || null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -253,7 +276,17 @@
       });
       video.srcObject = stream;
       await video.play();
-      logDebug('viser:start', { video: { w: video.videoWidth, h: video.videoHeight } });
+      fovPrior = priorShortFovDeg({
+        model: await deviceModel(),
+        userAgent: navigator.userAgent,
+        videoW: video.videoWidth,
+        videoH: video.videoHeight,
+        fallbackShortFovDeg: DEFAULT_SHORT_FOV_DEG,
+      });
+      logDebug('viser:start', {
+        video: { w: video.videoWidth, h: video.videoHeight },
+        fovAPriori: { deg: Number(fovPrior.shortFovDeg.toFixed(1)), source: fovPrior.source },
+      });
     } catch (error) {
       logDebug('viser:erreur', { etape: 'start', detail: String(error) });
       phase = 'error';
@@ -489,6 +522,9 @@
       },
       fovEcran: Number(currentScreenFov().toFixed(1)),
       fovPetitCote: shortFov(),
+      fovAPriori: fovPrior
+        ? { deg: Number(fovPrior.shortFovDeg.toFixed(1)), source: fovPrior.source }
+        : null,
       zoom: Number(zoom.toFixed(2)),
       video: video ? { w: video.videoWidth, h: video.videoHeight } : null,
       conteneur: container ? { w: container.clientWidth, h: container.clientHeight } : null,

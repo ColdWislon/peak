@@ -248,3 +248,20 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       épinglé par le test unitaire de `localEastNorth` et le cap vrai des sommets réels ;
       l'étage navigateur couvre tout le reste de la chaîne (FOV/découpe `cover`, capteurs,
       workers, projection, SVG, calibrage) au pixel près.
+- [x] A priori de FOV déduit de l'appareil (`lib/viser/deviceFov`, module pur testé) —
+      réponse à « peut-on déduire le FOV du nom du téléphone ? » : par le nom seul,
+      seulement sur Android/Chromium (`userAgentData` → `model`, l'ancien user-agent est
+      figé) ; Safari iOS ne dit que « iPhone » — mais les caméras principales 1×
+      d'Apple sont homogènes (~26 mm équivalent) : a priori de FAMILLE. Et l'aspect du
+      flux livré pèse plus que la marque : un capteur 4:3 recadré en 16:9 perd ~12° de
+      FOV petit côté (53° → 41° à 26 mm), là où les familles ne s'écartent que de ~2°.
+      D'où : table famille → focale équivalente 35 mm (Pixel 6-9 : 25, Pixel anciens :
+      27, Galaxy S22-24 : 23, S21 : 26, iPhone : 26), puis focale + dimensions du flux →
+      FOV petit côté (capteur 4:3, recadrage vertical au-delà de 4:3, horizontal en
+      deçà) ; appareil inconnu : le défaut 55° (défini pour 4:3) est au moins corrigé de
+      l'aspect (16:9 → 42,7°). Priorité inchangée : mesure par l'horizon persistée >
+      a priori > défaut — l'a priori ne fait que remplacer le point de départ aveugle.
+      Source de l'a priori exposée au rapport de débogage (`fovAPriori`). Vérifié : tests
+      unitaires du module (familles, aspects, portrait=paysage, aucune régression à
+      l'identique en 4:3 inconnu) et bout en bout navigateur inchangé (le Chromium de
+      test suit le chemin « défaut ajusté », 4:3 → exactement 55°).
