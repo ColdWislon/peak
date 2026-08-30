@@ -348,10 +348,19 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       1550 à 7 km, n'entrait même pas dans la liste : rien à étiqueter, quoi qu'il vise.
       Correction : `apparentImportance` (hauteur apparente + moitié du relief propre vu à
       cette distance, courbure et réfraction comprises) et `topPeaksFrom(peaks, viewpoint,
-    eyeElevation, limit)` — le mode Viser et le panorama choisissent désormais ce qui SE
+  eyeElevation, limit)` — le mode Viser et le panorama choisissent désormais ce qui SE
       VOIT depuis le point de vue, et la priorité de placement des étiquettes suit le même
       critère (un sommet proche qui domine la vue passe devant un géant lointain quand les
       boîtes se chevauchent). La carte garde le tri absolu : une vue de dessus n'a pas de
       point de vue. Test de non-régression sur le cas réel : 400 sommets lointains de 2500
       à 3500 m plus la Croix du Nivolet — l'ancien tri l'évinçait des 300, le nouveau la
       met en tête.
+- [x] Rapport terrain n° 7 : le nouveau détecteur mord. Deux recalages appliqués d'affilée,
+      MAE 0,37° et **toutes** les colonnes concordantes (189/189 puis 165/165), optique
+      adoptée puis persistée — FOV petit côté mesuré à 53,5°, valeur plausible pour un
+      capteur 4:3 d'iPhone (c'était 0 puis 25 % de colonnes concordantes avant). En
+      revanche le garde-fou d'aspect que je venais d'ajouter se trompait de critère : iOS
+      fait pivoter le flux avec l'appareil (1600×1200 ↔ 1200×1600) et l'étalonnage mesuré
+      en paysage était donc jeté en portrait (`etalonnageUtilisable: false`, retour au
+      défaut 55°). `frameShape` (grand côté / petit côté, testé) normalise la forme : la
+      rotation n'invalide plus rien, un vrai changement de format (16:9 vs 4:3) toujours si.

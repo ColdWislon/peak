@@ -24,10 +24,11 @@ export interface Settings {
    */
   cameraShortFovDeg: number | null;
   /**
-   * Aspect (largeur / hauteur) du flux caméra sur lequel ce FOV a été mesuré ;
-   * null = inconnu (mesure antérieure à ce champ). Un flux de forme différente
-   * (16:9 vs 4:3) ne voit pas le même angle sur son petit côté : la mesure ne
-   * s'y applique pas.
+   * Forme du cadre (grand côté / petit côté, donc ≥ 1) sur laquelle ce FOV a
+   * été mesuré ; null = inconnue (mesure antérieure à ce champ). Un cadre de
+   * forme différente (16:9 vs 4:3) ne voit pas le même angle sur son petit
+   * côté : la mesure ne s'y applique pas. Normalisée pour que la rotation de
+   * l'appareil, qui fait pivoter le flux, ne l'invalide pas.
    */
   cameraStreamAspect: number | null;
 }

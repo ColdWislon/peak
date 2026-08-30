@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { coverCrop, screenFovDeg, shortSideFovDeg } from './videoView';
+import { coverCrop, frameShape, screenFovDeg, shortSideFovDeg } from './videoView';
+
+describe('frameShape', () => {
+  it('ignore l’orientation : même forme en portrait et en paysage', () => {
+    expect(frameShape(1600, 1200)).toBeCloseTo(4 / 3, 6);
+    expect(frameShape(1200, 1600)).toBeCloseTo(4 / 3, 6);
+    expect(frameShape(1920, 1080)).toBeCloseTo(16 / 9, 6);
+  });
+
+  it('rend null sur une taille absente ou absurde', () => {
+    expect(frameShape(0, 1200)).toBeNull();
+    expect(frameShape(Number.NaN, 1200)).toBeNull();
+  });
+});
 
 describe('coverCrop', () => {
   it('paysage : toute la largeur du cadre, bande verticale centrée (cas du rapport terrain)', () => {

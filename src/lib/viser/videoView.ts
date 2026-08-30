@@ -10,6 +10,20 @@ import { degToRad, radToDeg } from '../geo';
  * ou le flux tourne. Module pur, testé.
  */
 
+/**
+ * Forme du cadre caméra, indépendante de l'orientation : grand côté / petit
+ * côté. iOS fait pivoter le flux avec l'appareil (1600×1200 en paysage,
+ * 1200×1600 en portrait) alors que l'optique, elle, ne bouge pas — comparer
+ * les aspects bruts ferait passer un étalonnage parfaitement valable pour
+ * caduc à chaque rotation (rapport terrain n° 7).
+ */
+export function frameShape(videoW: number, videoH: number): number | null {
+  const w = Math.abs(videoW);
+  const h = Math.abs(videoH);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) return null;
+  return Math.max(w, h) / Math.min(w, h);
+}
+
 /** Rectangle source (px vidéo) du flux réellement visible dans la vue. */
 export interface CoverCrop {
   sx: number;

@@ -31,7 +31,7 @@
     matchSkyline,
     skylineScreenPoints,
   } from '../lib/viser/skyline';
-  import { coverCrop, screenFovDeg, shortSideFovDeg } from '../lib/viser/videoView';
+  import { coverCrop, frameShape, screenFovDeg, shortSideFovDeg } from '../lib/viser/videoView';
   import type {
     PeakSight,
     VisibilityRequest,
@@ -114,15 +114,16 @@
   /** Dernier événement absolu vu : le flux relatif d'Android est alors ignoré. */
   let lastAbsoluteMs = Number.NEGATIVE_INFINITY;
 
-  /** Aspect du flux caméra courant (largeur / hauteur), null avant la vidéo. */
+  /** Forme du cadre caméra courant (grand côté / petit côté), null sans vidéo. */
   function streamAspect(): number | null {
-    return video && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null;
+    return video ? frameShape(video.videoWidth, video.videoHeight) : null;
   }
 
   /**
-   * Vrai si l'étalonnage mémorisé a été mesuré sur un flux de même forme.
+   * Vrai si l'étalonnage mémorisé a été mesuré sur un flux de même FORME.
    * Un 16:9 est une découpe d'un 4:3 : son petit côté ne voit pas le même
-   * angle, la valeur mémorisée serait fausse en silence.
+   * angle, la valeur mémorisée serait fausse en silence. La rotation de
+   * l'appareil, elle, ne change rien : la forme est normalisée.
    */
   function storedFovUsable(): boolean {
     if (settings.cameraShortFovDeg === null) return false;
@@ -472,9 +473,7 @@
           // L'angle du petit côté dépend de la FORME du cadre : un flux 16:9 est
           // une découpe d'un 4:3. On mémorise l'aspect avec la mesure, faute de
           // quoi un changement de flux rendrait l'étalonnage faux en silence.
-          settings.cameraStreamAspect = Number(
-            (video.videoWidth / Math.max(1, video.videoHeight)).toFixed(3),
-          );
+          settings.cameraStreamAspect = Number((streamAspect() ?? 0).toFixed(3));
           saveSettings();
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
         } else {
