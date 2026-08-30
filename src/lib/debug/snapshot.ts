@@ -1,0 +1,206 @@
+import { fr } from '../i18n/fr';
+
+/**
+ * Capture de la vue caméra pour le débogage (mode Viser). Le rapport JSON dit
+ * ce que l'app CROIT viser ; cette capture montre ce que la caméra voit
+ * VRAIMENT, avec les repères calculés (horizon du relief, étiquettes) dessinés
+ * dessus et l'état de visée gravé en bas de l'image. L'utilisateur partage
+ * l'image ou la télécharge, puis la joint à la conversation — c'est le seul
+ * accès de Claude à la caméra, un fichier remis à la main : aucune image ne
+ * quitte l'appareil sans ce geste, et aucun backend n'est en jeu.
+ *
+ * Le composant Viser enregistre la SOURCE (il seul sait dessiner la vue) ;
+ * l'interface (bouton du mode Viser, réglages ⚙) ne connaît que ce module.
+ */
+
+/** Image capturée, prête à partager ou télécharger. */
+export interface DebugSnapshot {
+  blob: Blob;
+  /** Nom de fichier proposé, horodaté. */
+  name: string;
+  width: number;
+  height: number;
+  /** État de la visée au déclenchement (aussi gravé dans l'image). */
+  meta: Record<string, unknown>;
+}
+
+/** Rend la vue courante ; rejette si la caméra n'est pas exploitable. */
+export type SnapshotSource = () => Promise<DebugSnapshot>;
+
+/** Côté long maximal de l'image produite (px) : lisible, mais léger à joindre. */
+export const SNAPSHOT_MAX_EDGE = 1280;
+
+let source: SnapshotSource | null = null;
+
+/** Enregistre la source de capture ; retourne la désinscription (démontage). */
+export function registerSnapshotSource(next: SnapshotSource): () => void {
+  source = next;
+  return () => {
+    if (source === next) source = null;
+  };
+}
+
+/** Vrai quand une vue caméra est disponible (mode Viser démarré). */
+export function hasSnapshotSource(): boolean {
+  return source !== null;
+}
+
+/** Déclenche la capture ; rejette si aucune vue n'est disponible. */
+export function captureDebugSnapshot(): Promise<DebugSnapshot> {
+  if (!source) return Promise.reject(new Error('aucune vue caméra à capturer'));
+  return source();
+}
+
+/** Réservé aux tests : oublie la source enregistrée. */
+export function resetSnapshotForTests(): void {
+  source = null;
+}
+
+/**
+ * Taille de l'image capturée : mêmes proportions que la vue, côté long borné
+ * (jamais agrandie — une vue minuscule reste minuscule).
+ */
+export function fitSnapshot(
+  viewWidth: number,
+  viewHeight: number,
+  maxEdge: number = SNAPSHOT_MAX_EDGE,
+): { width: number; height: number } {
+  const w = Number.isFinite(viewWidth) ? Math.floor(viewWidth) : 0;
+  const h = Number.isFinite(viewHeight) ? Math.floor(viewHeight) : 0;
+  if (w < 1 || h < 1) return { width: 1, height: 1 };
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+}
+
+/** Nom de fichier horodaté (heure locale) : `cimes-vue-20260830-101233.jpg`. */
+export function snapshotFileName(date: Date): string {
+  const p = (n: number, size = 2): string => String(n).padStart(size, '0');
+  const stamp =
+    `${p(date.getFullYear(), 4)}${p(date.getMonth() + 1)}${p(date.getDate())}` +
+    `-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+  return `cimes-vue-${stamp}.jpg`;
+}
+
+/** État de visée décrit par la capture (gravé dans l'image et journalisé). */
+export interface SnapshotAim {
+  headingDeg: number;
+  pitchDeg: number;
+  headingOffsetDeg: number;
+  pitchOffsetDeg: number;
+  /** FOV vertical de la vue (°), découpe `cover` et zoom compris. */
+  screenFovDeg: number;
+  /** FOV du petit côté du capteur (°) : réglage persisté. */
+  shortFovDeg: number;
+  /** Vrai si ce FOV vient d'un calibrage, faux s'il reste la valeur par défaut. */
+  fovCalibrated: boolean;
+  zoom: number;
+  /** Faux quand les capteurs manquent (visée au doigt). */
+  sensors: boolean;
+  /** Vrai quand l'horizon du relief est tracé sur l'image. */
+  horizon: boolean;
+  labels: number;
+}
+
+function num(value: number, digits = 0): string {
+  return value.toFixed(digits).replace('.', ',');
+}
+
+/**
+ * Légende gravée dans l'image (une ligne par entrée) : la capture reste
+ * interprétable seule, même détachée du rapport JSON.
+ */
+export function snapshotCaption(aim: SnapshotAim): string[] {
+  const sign = (value: number): string => `${value >= 0 ? '+' : '−'}${num(Math.abs(value), 1)}°`;
+  return [
+    `Cimes · cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
+      ` · recalage ${sign(aim.headingOffsetDeg)} / ${sign(aim.pitchOffsetDeg)}`,
+    `FOV vue ${num(aim.screenFovDeg, 1)}° · capteur ${num(aim.shortFovDeg, 1)}°` +
+      ` ${aim.fovCalibrated ? '(étalonné)' : '(défaut)'} · zoom ${num(aim.zoom, 1)}×`,
+    `${aim.sensors ? 'capteurs actifs' : 'sans capteurs'} · ` +
+      `${aim.horizon ? 'horizon tracé' : 'horizon non calculé'} · ${aim.labels} étiquette${
+        aim.labels > 1 ? 's' : ''
+      }`,
+  ];
+}
+
+/** Issue de la remise du fichier à l'utilisateur. */
+export type SnapshotDelivery = 'partage' | 'telechargement' | 'annule';
+
+/** Deux façons de remettre le fichier ; injectables pour les tests. */
+export interface DeliveryEnv {
+  /** Feuille de partage native ; `false` = indisponible → repli téléchargement. */
+  shareFile: (snapshot: DebugSnapshot) => Promise<boolean>;
+  /** Repli toujours possible : enregistrement du fichier. */
+  saveFile: (snapshot: DebugSnapshot) => void;
+}
+
+/**
+ * Remet l'image : partage natif (feuille iOS — « Enregistrer dans Photos »,
+ * Messages…) quand il existe, sinon téléchargement. Un partage ANNULÉ n'est
+ * pas un échec : pas de téléchargement surprise derrière le dos de l'utilisateur.
+ */
+export async function deliverSnapshot(
+  snapshot: DebugSnapshot,
+  env: DeliveryEnv = browserDelivery(),
+): Promise<SnapshotDelivery> {
+  try {
+    if (await env.shareFile(snapshot)) return 'partage';
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') return 'annule';
+    // Partage cassé (permissions, contexte non sécurisé…) : on télécharge.
+  }
+  env.saveFile(snapshot);
+  return 'telechargement';
+}
+
+/** Implémentation navigateur de la remise (partage natif, sinon lien `download`). */
+export function browserDelivery(): DeliveryEnv {
+  return {
+    shareFile: async (snapshot) => {
+      if (typeof navigator === 'undefined' || typeof File === 'undefined') return false;
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+        share?: (data: ShareData) => Promise<void>;
+      };
+      if (typeof nav.share !== 'function' || typeof nav.canShare !== 'function') return false;
+      const file = new File([snapshot.blob], snapshot.name, {
+        type: snapshot.blob.type || 'image/jpeg',
+      });
+      const data: ShareData = {
+        files: [file],
+        title: fr.viser.captureShareTitle,
+        text: fr.viser.captureShareText,
+      };
+      if (!nav.canShare(data)) return false;
+      await nav.share(data);
+      return true;
+    },
+    saveFile: (snapshot) => {
+      const url = URL.createObjectURL(snapshot.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = snapshot.name;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Révocation différée : Safari lit l'URL après le clic.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    },
+  };
+}
+
+/** Encode un canvas en blob (JPEG par défaut) ; rejette si l'encodage échoue. */
+export function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type = 'image/jpeg',
+  quality = 0.82,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('encodage image impossible'))),
+      type,
+      quality,
+    );
+  });
+}

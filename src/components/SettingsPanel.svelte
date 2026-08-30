@@ -1,5 +1,6 @@
 <script lang="ts">
   import { buildDebugReport } from '../lib/debug/report';
+  import { captureDebugSnapshot, deliverSnapshot, hasSnapshotSource } from '../lib/debug/snapshot';
   import { fr } from '../lib/i18n/fr';
   import type { NamePreference } from '../lib/peaks';
   import { isIosDevice, isStandalone } from '../lib/pwa/install';
@@ -9,6 +10,12 @@
   let open = $state(false);
   let reportMessage = $state<string | null>(null);
   let reportFallback = $state<string | null>(null);
+  let capturing = $state(false);
+  let captureMessage = $state<string | null>(null);
+
+  // La vue caméra n'existe que pendant la visée : réévalué à chaque ouverture
+  // du panneau (le mode courant ne remonte pas jusqu'ici).
+  const canCapture = $derived(open && hasSnapshotSource());
 
   // Aide à l'installation PWA : seulement sur iOS et hors app déjà installée.
   const showInstall =
@@ -30,6 +37,26 @@
       reportMessage = fr.settings.reportFailed;
     }
     setTimeout(() => (reportMessage = null), 6000);
+  }
+
+  /** Capture de la vue caméra : image + repères, à joindre à la conversation. */
+  async function captureView(): Promise<void> {
+    if (capturing) return;
+    capturing = true;
+    captureMessage = null;
+    try {
+      const delivery = await deliverSnapshot(await captureDebugSnapshot());
+      captureMessage =
+        delivery === 'partage'
+          ? fr.viser.captureShared
+          : delivery === 'telechargement'
+            ? fr.viser.captureSaved
+            : fr.viser.captureCancelled;
+    } catch {
+      captureMessage = fr.viser.captureFailed;
+    }
+    capturing = false;
+    setTimeout(() => (captureMessage = null), 6000);
   }
 
   const qualities: Array<{ value: RenderQuality; label: string }> = [
@@ -144,6 +171,20 @@
         {#if reportFallback}
           <textarea class="report-text" readonly rows="6">{reportFallback}</textarea>
         {/if}
+
+        <!-- Le rapport dit ce que l'app croit viser ; la capture montre ce que
+             la caméra voit. Rien ne part sans le geste de l'utilisateur. -->
+        <button
+          class="report capture"
+          onclick={() => void captureView()}
+          disabled={!canCapture || capturing}
+        >
+          📸 {fr.settings.captureView}
+        </button>
+        <p class="report-note">
+          {canCapture ? fr.settings.captureHint : fr.settings.captureUnavailable}
+        </p>
+        {#if captureMessage}<p class="report-note" role="status">{captureMessage}</p>{/if}
       </fieldset>
 
       <!-- Attributions ODbL/OSM et tuiles : affichées dans l'app (décision n° 14
@@ -259,8 +300,17 @@
     cursor: pointer;
   }
 
-  .report:hover {
+  .report:hover:enabled {
     border-color: var(--accent);
+  }
+
+  .report:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .report.capture {
+    margin-top: 0.45rem;
   }
 
   .report-note {

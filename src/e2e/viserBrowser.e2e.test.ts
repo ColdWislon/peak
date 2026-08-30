@@ -155,6 +155,70 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     expect(after.median).toBeLessThanOrEqual(4.5);
   }, 120_000);
 
+  it('la capture de débogage montre la vidéo ET les repères, en registre', async () => {
+    // Pas de partage natif dans Chromium headless : on intercepte le repli
+    // téléchargement pour récupérer le blob produit, sans quitter la page.
+    await page.evaluate(() => {
+      const w = window as unknown as { __capture?: Blob | null };
+      w.__capture = null;
+      const original = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (object: Blob | MediaSource): string => {
+        if (object instanceof Blob) w.__capture = object;
+        return original(object);
+      };
+      HTMLAnchorElement.prototype.click = function noDownload(): void {};
+    });
+
+    await page.getByRole('button', { name: 'Capture pour Claude' }).click();
+    const note = await page.waitForSelector('.capture-message', { timeout: 20_000 });
+    expect((await note.textContent()) ?? '').toContain('joignez');
+
+    // Le blob est ré-encodé en PNG dans la page : le décodeur Node et l'analyse
+    // d'alignement des scénarios précédents s'y appliquent tels quels.
+    const encoded = await page.evaluate(async () => {
+      const blob = (window as unknown as { __capture: Blob | null }).__capture;
+      if (!blob) return null;
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+      return { type: blob.type, bytes: blob.size, png: canvas.toDataURL('image/png') };
+    });
+    expect(encoded).not.toBeNull();
+    expect(encoded!.type).toBe('image/jpeg');
+    expect(encoded!.bytes).toBeGreaterThan(5_000);
+
+    const png = Buffer.from(encoded!.png.split(',')[1]!, 'base64');
+    if (process.env.CIMES_E2E_DEBUG) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(`${process.env.CIMES_E2E_DEBUG}/capture.png`, png);
+    }
+    const shot = decodePng(png);
+    const viser = await page.$eval('.viser', (el) => {
+      const rect = el.getBoundingClientRect();
+      return { w: Math.round(rect.width), h: Math.round(rect.height), top: rect.top };
+    });
+    expect(shot.width).toBe(viser.w);
+    expect(shot.height).toBe(viser.h);
+
+    // La ligne rouge gravée épouse l'horizon de l'image : la mise à l'échelle
+    // repère-vue → repère-image est juste (c'est tout l'enjeu de la capture).
+    const anchor = await labelAnchor();
+    const gaps = alignmentGaps(shot, [anchor.x]);
+    expect(gaps.usable).toBeGreaterThan(100);
+    expect(gaps.median).toBeLessThanOrEqual(4.5);
+
+    // Bandeau de légende gravé en bas (fond sombre sur toute la largeur).
+    const band = shot.height - 20;
+    let dark = 0;
+    for (let x = 0; x < shot.width; x++) {
+      const o = (band * shot.width + x) * 4;
+      if (shot.rgba[o]! < 130 && shot.rgba[o + 1]! < 130 && shot.rgba[o + 2]! < 130) dark++;
+    }
+    expect(dark).toBeGreaterThan(shot.width * 0.9);
+  }, 120_000);
+
   /** Ancre de l'étiquette de sommet en coordonnées de FENÊTRE (celles des
    *  captures) : pied du trait de rappel, soit bas de la boîte + 14 px — les
    *  `style.left/top` de l'app sont dans le repère du conteneur Viser, décalé

@@ -1,6 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { logDebug, registerDebugProvider } from '../lib/debug/report';
+  import {
+    canvasToBlob,
+    deliverSnapshot,
+    fitSnapshot,
+    registerSnapshotSource,
+    snapshotCaption,
+    snapshotFileName,
+    type DebugSnapshot,
+    type SnapshotAim,
+  } from '../lib/debug/snapshot';
   import { normalizeBearing, type LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
@@ -70,10 +80,17 @@
   let demSkyline = $state<Float32Array | null>(null);
   /** Polyligne SVG de l'horizon calculé (points « x,y … ») et sa taille de repère. */
   let horizonPoints = $state('');
+  /** Mêmes points, en nombres : la capture de débogage les redessine au canvas. */
+  let horizonScreen: Array<{ x: number; y: number }> = [];
   let viewSize = $state({ w: 1, h: 1 });
   let calibrating = $state(false);
   let calibMessage = $state<string | null>(null);
   let calibTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Capture de débogage : état du bouton, message et trace du dernier envoi. */
+  let capturing = $state(false);
+  let captureMessage = $state<string | null>(null);
+  let captureTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastCapture: Record<string, unknown> | null = null;
   /** Zoom numérique courant : la vidéo est agrandie en CSS, le FOV suit. */
   let zoom = $state(1);
   let gotSensor = false;
@@ -128,11 +145,11 @@
       labels = placeLabels(candidates, view);
       compass = compassTicks(view);
       if (demSkyline) {
-        horizonPoints = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view)
-          .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-          .join(' ');
+        horizonScreen = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view);
+        horizonPoints = horizonScreen.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
         viewSize = { w: view.width, h: view.height };
       } else {
+        horizonScreen = [];
         horizonPoints = '';
       }
     });
@@ -381,6 +398,179 @@
     calibTimer = setTimeout(() => (calibMessage = null), 4000);
   }
 
+  /* ----------------------------------------------------------------------- */
+  /* Capture de débogage : donner à voir ce que la caméra voit vraiment.       */
+  /* ----------------------------------------------------------------------- */
+
+  /** Trace l'horizon calculé sur l'image (mêmes points que la polyligne SVG). */
+  function drawHorizon(ctx: CanvasRenderingContext2D, scale: number): void {
+    if (horizonScreen.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = '#ff453a'; // même rouge que l'overlay écran
+    ctx.lineWidth = Math.max(1.5, 2 * scale);
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgb(0 0 0 / 60%)';
+    ctx.shadowBlur = 3 * scale;
+    ctx.beginPath();
+    horizonScreen.forEach((point, i) => {
+      const x = point.x * scale;
+      const y = point.y * scale;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Étiquettes de sommets : ancre (pointe du sommet) + nom, comme à l'écran. */
+  function drawLabels(ctx: CanvasRenderingContext2D, scale: number): void {
+    const font = Math.max(10, Math.round(13 * scale));
+    ctx.save();
+    ctx.font = `${font}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (const label of labels) {
+      const x = label.x * scale;
+      const y = label.y * scale;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = Math.max(1, scale);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y - 14 * scale);
+      ctx.stroke();
+      const text = label.name;
+      const width = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(
+        x - width / 2 - 4 * scale,
+        y - 14 * scale - font - 4 * scale,
+        width + 8 * scale,
+        font + 6 * scale,
+      );
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, x, y - 14 * scale - 2 * scale);
+    }
+    ctx.restore();
+  }
+
+  /** Grave l'état de visée en bas de l'image : la capture se lit seule. */
+  function drawCaption(
+    ctx: CanvasRenderingContext2D,
+    lines: string[],
+    size: { width: number; height: number },
+  ): void {
+    const font = Math.max(9, Math.round(size.width / 46));
+    const pad = Math.round(font * 0.6);
+    const lineHeight = Math.round(font * 1.45);
+    const boxHeight = lines.length * lineHeight + pad * 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+    ctx.fillRect(0, size.height - boxHeight, size.width, boxHeight);
+    ctx.fillStyle = '#fff';
+    ctx.font = `${font}px system-ui, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    lines.forEach((line, i) => {
+      ctx.fillText(line, pad, size.height - boxHeight + pad + i * lineHeight, size.width - pad * 2);
+    });
+    ctx.restore();
+  }
+
+  /**
+   * Construit la capture : la découpe RÉELLEMENT visible du flux (`cover` +
+   * zoom, comme le calibrage), surmontée de l'horizon calculé, des étiquettes
+   * et de l'état de visée. C'est le seul accès de Claude à la caméra — une
+   * image que l'utilisateur joint lui-même à la conversation.
+   */
+  async function buildSnapshot(): Promise<DebugSnapshot> {
+    if (!video || !container || video.videoWidth === 0) throw new Error('caméra inactive');
+    const viewW = container.clientWidth;
+    const viewH = container.clientHeight;
+    const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH, zoom);
+    const size = fitSnapshot(viewW, viewH);
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas indisponible');
+    ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, size.width, size.height);
+
+    // Les repères vivent dans le repère de la VUE : une seule mise à l'échelle.
+    const scale = size.width / Math.max(1, viewW);
+    const aimInfo: SnapshotAim = {
+      headingDeg: normalizeBearing(aim.heading + headingOffset),
+      pitchDeg: aim.pitch + pitchOffset,
+      headingOffsetDeg: headingOffset,
+      pitchOffsetDeg: pitchOffset,
+      screenFovDeg: currentScreenFov(),
+      shortFovDeg: shortFov(),
+      fovCalibrated: settings.cameraShortFovDeg !== null,
+      zoom,
+      sensors: !sensorless && gotSensor,
+      horizon: horizonScreen.length > 1,
+      labels: labels.length,
+    };
+    drawHorizon(ctx, scale);
+    drawLabels(ctx, scale);
+    drawCaption(ctx, snapshotCaption(aimInfo), size);
+
+    const blob = await canvasToBlob(canvas);
+    const name = snapshotFileName(new Date());
+    const meta = {
+      fichier: name,
+      cap: Math.round(aimInfo.headingDeg),
+      assiette: Number(aimInfo.pitchDeg.toFixed(1)),
+      recalages: {
+        cap: Number(headingOffset.toFixed(1)),
+        assiette: Number(pitchOffset.toFixed(1)),
+      },
+      fovEcran: Number(aimInfo.screenFovDeg.toFixed(1)),
+      fovPetitCote: aimInfo.shortFovDeg,
+      fovEtalonne: aimInfo.fovCalibrated,
+      zoom: Number(zoom.toFixed(2)),
+      capteurs: aimInfo.sensors,
+      horizonTrace: aimInfo.horizon,
+      etiquettes: labels.length,
+      image: size,
+      vue: { w: viewW, h: viewH },
+      video: { w: video.videoWidth, h: video.videoHeight },
+      recadrage: {
+        sx: Math.round(crop.sx),
+        sy: Math.round(crop.sy),
+        sw: Math.round(crop.sw),
+        sh: Math.round(crop.sh),
+      },
+      pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon },
+      octets: blob.size,
+    };
+    lastCapture = meta;
+    logDebug('viser:capture', meta);
+    return { blob, name, width: size.width, height: size.height, meta };
+  }
+
+  /** Bouton « Capture pour Claude » : construit l'image puis la remet. */
+  async function captureView(): Promise<void> {
+    if (capturing) return;
+    capturing = true;
+    clearTimeout(captureTimer);
+    captureMessage = null;
+    try {
+      const snapshot = await buildSnapshot();
+      const delivery = await deliverSnapshot(snapshot);
+      captureMessage =
+        delivery === 'partage'
+          ? fr.viser.captureShared
+          : delivery === 'telechargement'
+            ? fr.viser.captureSaved
+            : fr.viser.captureCancelled;
+    } catch (error) {
+      logDebug('viser:erreur', { etape: 'capture', detail: String(error) });
+      captureMessage = fr.viser.captureFailed;
+    }
+    capturing = false;
+    captureTimer = setTimeout(() => (captureMessage = null), 6000);
+  }
+
   // Glissé un doigt : recalage de la boussole, ou visée complète sans capteurs.
   // Pincement deux doigts : zoom numérique. Molette : idem au bureau.
   let dragging = false;
@@ -497,15 +687,25 @@
       visibles: candidates.length,
       horizonCalcule: demSkyline !== null,
       oeil: Math.round(eyeElevation),
+      derniereCapture: lastCapture,
     }));
     return () => {
       unregister();
+      clearTimeout(calibTimer);
+      clearTimeout(captureTimer);
       container.removeEventListener('wheel', onWheel);
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
       window.removeEventListener('deviceorientation', onOrientation as EventListener);
       worker?.terminate();
     };
+  });
+
+  // La vue caméra n'est capturable que pendant la visée : les réglages ⚙
+  // n'offrent le bouton de capture que tant que cette source est enregistrée.
+  $effect(() => {
+    if (phase !== 'running') return;
+    return registerSnapshotSource(() => buildSnapshot());
   });
 
   // Téléportation en cours de visée : recharge les données du nouveau point.
@@ -565,6 +765,19 @@
     {/if}
     {#if calibMessage}
       <p class="calib-message" role="status">{calibMessage}</p>
+    {/if}
+
+    <!-- Débogage : la capture est le seul accès de Claude à la caméra. -->
+    <button
+      class="capture"
+      onclick={() => void captureView()}
+      disabled={capturing}
+      title={fr.viser.captureTitle}
+    >
+      📸 {fr.viser.capture}
+    </button>
+    {#if captureMessage}
+      <p class="capture-message" role="status">{captureMessage}</p>
     {/if}
 
     {#if peaksStatus !== 'ok' && peaksStatus !== 'idle'}
@@ -681,6 +894,46 @@
     color: var(--text);
     font-size: 0.82rem;
     white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .capture {
+    position: absolute;
+    bottom: calc(5.2rem + var(--safe-bottom));
+    right: calc(0.75rem + var(--safe-right));
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    color: var(--muted);
+    font-size: 0.78rem;
+    cursor: pointer;
+  }
+
+  .capture:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  .capture:hover:enabled {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+
+  .capture-message {
+    position: absolute;
+    bottom: calc(8.4rem + var(--safe-bottom));
+    right: calc(0.75rem + var(--safe-right));
+    max-width: min(18rem, 70vw);
+    margin: 0;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.35;
+    text-align: right;
     pointer-events: none;
   }
 

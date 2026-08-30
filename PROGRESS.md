@@ -248,3 +248,21 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       épinglé par le test unitaire de `localEastNorth` et le cap vrai des sommets réels ;
       l'étage navigateur couvre tout le reste de la chaîne (FOV/découpe `cover`, capteurs,
       workers, projection, SVG, calibrage) au pixel près.
+- [x] Capture de la vue caméra pour Claude (débogage) : le rapport JSON dit ce que l'app
+      CROIT viser, la capture montre ce que la caméra voit VRAIMENT. Bouton « 📸 Capture
+      pour Claude » en mode Viser (et dans ⚙ tant que la visée tourne) : la découpe
+      réellement visible du flux (`cover` + zoom, comme le calibrage) est redessinée dans
+      un canvas borné à 1280 px de côté long, surmontée de l'horizon calculé (même rouge
+      que l'overlay), des étiquettes de sommets avec leur trait de rappel, et d'un bandeau
+      gravant cap, assiette, recalages, FOV vue/capteur (étalonné ou non), zoom, présence
+      des capteurs et de l'horizon — l'image se lit seule, détachée du rapport. JPEG remis
+      par la feuille de partage native quand elle existe (iOS : « Enregistrer dans
+      Photos », Messages…), sinon par téléchargement ; un partage ANNULÉ ne déclenche pas
+      de téléchargement surprise. Zéro backend, zéro accès direct : Claude ne voit la
+      caméra que par le fichier que l'utilisateur joint lui-même, et les métadonnées de la
+      dernière capture rejoignent le rapport JSON (`derniereCapture`). Module
+      `lib/debug/snapshot` (registre de source, bornage de taille, nom horodaté, légende,
+      remise injectable) testé ; vérifié au navigateur (scénario 3 de `test:e2e`) SUR
+      L'IMAGE PRODUITE : dimensions = celles de la vue, JPEG non trivial, ligne rouge
+      gravée à 4,5 px près de l'horizon vidéo (la mise à l'échelle vue → image est donc
+      juste) et bandeau de légende présent.

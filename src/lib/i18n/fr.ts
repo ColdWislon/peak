@@ -45,6 +45,15 @@ export const fr = {
     calibrateAuto: 'Recaler sur l’horizon',
     horizonLocked: 'Horizon calé',
     horizonNotFound: 'Horizon introuvable — recalez à la main',
+    capture: 'Capture pour Claude',
+    captureTitle: 'Capturer la vue caméra avec les repères calculés',
+    captureShareTitle: 'Cimes — capture de débogage',
+    captureShareText:
+      'Vue caméra avec l’horizon calculé et les étiquettes, à joindre à la conversation avec Claude.',
+    captureShared: 'Capture partagée — joignez-la à la conversation avec Claude',
+    captureSaved: 'Capture enregistrée — joignez le fichier à la conversation avec Claude',
+    captureCancelled: 'Partage annulé — capture non enregistrée',
+    captureFailed: 'Capture impossible — la caméra doit être active',
   },
   settings: {
     title: 'Réglages',
@@ -65,6 +74,10 @@ export const fr = {
     copyReport: 'Copier le rapport de débogage',
     reportCopied: 'Rapport copié — collez-le dans la conversation avec Claude',
     reportFailed: 'Copie impossible — sélectionnez le texte ci-dessous',
+    captureView: 'Capturer la vue caméra',
+    captureHint:
+      'Le rapport dit ce que l’app croit viser ; la capture montre ce que la caméra voit — Claude n’y a accès que par ce fichier.',
+    captureUnavailable: 'Démarrez le mode Viser pour capturer la vue caméra.',
   },
   map: {
     panoramaHere: 'Panorama ici',
