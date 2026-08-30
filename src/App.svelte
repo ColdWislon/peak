@@ -1,17 +1,27 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import MapView from './components/MapView.svelte';
   import PanoramaView from './components/PanoramaView.svelte';
   import SearchBar from './components/SearchBar.svelte';
   import SettingsPanel from './components/SettingsPanel.svelte';
   import ViserView from './components/ViserView.svelte';
+  import { logDebug, registerDebugProvider } from './lib/debug/report';
   import type { LatLon } from './lib/geo';
   import { fr } from './lib/i18n/fr';
-  import { parseMode, parseViewpoint, viewpointToSearch, type ViewMode } from './lib/viewpoint/url';
+  import {
+    parseMode,
+    parseViewpoint,
+    viewpointToSearch,
+    type ViewMode,
+    type ViewpointSource,
+  } from './lib/viewpoint/url';
 
   /** Point de vue par défaut : Chamonix, face au massif du Mont-Blanc (PLAN.md). */
   const DEFAULT_VIEWPOINT = { lat: 45.9237, lon: 6.8694 };
 
-  let viewpoint = $state<LatLon>(parseViewpoint(location.search) ?? DEFAULT_VIEWPOINT);
+  const urlViewpoint = parseViewpoint(location.search);
+  let viewpoint = $state<LatLon>(urlViewpoint ?? DEFAULT_VIEWPOINT);
+  let viewpointSource = $state<ViewpointSource>(urlViewpoint ? 'url' : 'defaut');
   let mode = $state<ViewMode>(parseMode(location.search));
 
   function syncUrl(): void {
@@ -19,17 +29,47 @@
   }
 
   /** Téléporte (recherche, géolocalisation) en restant dans le mode courant. */
-  function teleport(next: LatLon): void {
+  function teleport(next: LatLon, source: ViewpointSource): void {
     viewpoint = next;
+    viewpointSource = source;
     syncUrl();
   }
 
   /** Depuis la carte : bascule dans le panorama à cet endroit. */
   function teleportToPanorama(next: LatLon): void {
     viewpoint = next;
+    viewpointSource = 'carte';
     mode = 'panorama';
     syncUrl();
   }
+
+  onMount(() => {
+    const unregister = registerDebugProvider('app', () => ({
+      mode,
+      pointDeVue: viewpoint,
+      sourcePointDeVue: viewpointSource,
+    }));
+
+    // L'app s'ouvre en Viser : un horizon calculé depuis le point de vue par
+    // défaut ne veut rien dire là où l'utilisateur se trouve. Sans coordonnées
+    // dans l'URL (lien partagé), on demande donc la position dès l'ouverture ;
+    // un refus laisse simplement le point de vue par défaut, modifiable par la
+    // recherche.
+    if (!urlViewpoint && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          teleport({ lat: position.coords.latitude, lon: position.coords.longitude }, 'gps');
+          logDebug('app:position', {
+            source: 'gps',
+            precisionM: Math.round(position.coords.accuracy),
+          });
+        },
+        (error) => logDebug('app:position', { source: 'defaut', erreur: error.message }),
+        { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
+      );
+    }
+    return unregister;
+  });
 
   function switchMode(next: ViewMode): void {
     if (mode === next) return;
@@ -61,7 +101,7 @@
   {:else if mode === 'carte'}
     <MapView {viewpoint} onteleport={teleportToPanorama} />
   {:else}
-    <ViserView {viewpoint} />
+    <ViserView {viewpoint} {viewpointSource} />
   {/if}
 </div>
 

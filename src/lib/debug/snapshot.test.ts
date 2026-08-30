@@ -25,6 +25,7 @@ function fakeSnapshot(): DebugSnapshot {
 const AIM: SnapshotAim = {
   time: new Date(2026, 7, 30, 11, 18, 5),
   viewpoint: { lat: 45.58931, lon: 5.90127 },
+  viewpointSource: 'gps',
   eyeElevationM: 412.4,
   headingDeg: 95.4,
   pitchDeg: -3.42,
@@ -66,7 +67,7 @@ describe('capture de débogage', () => {
     const lines = snapshotCaption(AIM);
     expect(lines).toHaveLength(5);
     expect(lines[0]).toContain('30/08 11:18');
-    expect(lines[0]).toContain('point de vue 45.5893, 5.9013');
+    expect(lines[0]).toContain('point de vue 45.5893, 5.9013 (GPS)');
     expect(lines[0]).toContain('œil 412 m');
     expect(lines[1]).toContain('cap 95°');
     expect(lines[1]).toContain('assiette −3,4°');
@@ -81,6 +82,11 @@ describe('capture de débogage', () => {
     expect(lines[4]).toBe(
       'capteurs actifs · horizon tracé · sommets : 128 chargés, 12 en vue, 7 dans le champ',
     );
+  });
+
+  it('dit d’où vient le point de vue (un horizon faux part souvent de là)', () => {
+    expect(snapshotCaption({ ...AIM, viewpointSource: 'defaut' })[0]).toContain('(défaut)');
+    expect(snapshotCaption({ ...AIM, viewpointSource: 'url' })[0]).toContain('(lien)');
   });
 
   it('dit le verdict du dernier recalage, y compris son absence', () => {

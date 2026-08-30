@@ -21,21 +21,25 @@ describe('parseViewpoint', () => {
 });
 
 describe('parseMode', () => {
-  it('lit les modes carte et viser, retombe sur panorama sinon', () => {
+  it('ouvre en Viser par défaut, lit les modes explicites', () => {
     expect(parseMode('?lat=1&lon=2&mode=carte')).toBe('carte');
+    expect(parseMode('?lat=1&lon=2&mode=panorama')).toBe('panorama');
     expect(parseMode('?lat=1&lon=2&mode=viser')).toBe('viser');
-    expect(parseMode('?lat=1&lon=2')).toBe('panorama');
-    expect(parseMode('?mode=nimporte')).toBe('panorama');
+    expect(parseMode('?lat=1&lon=2')).toBe('viser');
+    expect(parseMode('?mode=nimporte')).toBe('viser');
+    expect(parseMode('')).toBe('viser');
   });
 
-  it('sérialise le mode viser', () => {
-    expect(parseMode(viewpointToSearch({ lat: 1, lon: 2 }, 'viser'))).toBe('viser');
+  it('sérialise les modes non par défaut, tait le mode Viser', () => {
+    expect(viewpointToSearch({ lat: 1, lon: 2 }, 'viser')).not.toContain('mode=');
+    expect(viewpointToSearch({ lat: 1, lon: 2 }, 'panorama')).toContain('mode=panorama');
   });
 
   it('boucle avec viewpointToSearch', () => {
     const vp = { lat: 45.9237, lon: 6.8694 };
     expect(parseMode(viewpointToSearch(vp, 'carte'))).toBe('carte');
-    expect(parseMode(viewpointToSearch(vp))).toBe('panorama');
+    expect(parseMode(viewpointToSearch(vp, 'panorama'))).toBe('panorama');
+    expect(parseMode(viewpointToSearch(vp))).toBe('viser');
     expect(parseViewpoint(viewpointToSearch(vp, 'carte'))).toEqual(vp);
   });
 });

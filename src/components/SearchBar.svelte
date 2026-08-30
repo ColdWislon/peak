@@ -2,8 +2,9 @@
   import type { LatLon } from '../lib/geo';
   import { searchPlaces, type PlaceResult } from '../lib/geocode';
   import { fr } from '../lib/i18n/fr';
+  import type { ViewpointSource } from '../lib/viewpoint/url';
 
-  let { onpick }: { onpick: (viewpoint: LatLon) => void } = $props();
+  let { onpick }: { onpick: (viewpoint: LatLon, source: ViewpointSource) => void } = $props();
 
   let query = $state('');
   let results = $state<PlaceResult[]>([]);
@@ -45,7 +46,7 @@
     open = false;
     results = [];
     query = place.name;
-    onpick({ lat: place.lat, lon: place.lon });
+    onpick({ lat: place.lat, lon: place.lon }, 'recherche');
   }
 
   function locate(): void {
@@ -59,7 +60,7 @@
       (position) => {
         busy = false;
         open = false;
-        onpick({ lat: position.coords.latitude, lon: position.coords.longitude });
+        onpick({ lat: position.coords.latitude, lon: position.coords.longitude }, 'gps');
       },
       () => {
         busy = false;

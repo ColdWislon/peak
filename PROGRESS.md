@@ -294,3 +294,14 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       retenu, mention « en butée ») ; ⚙ gagne « Oublier l'étalonnage caméra », sans quoi une
       optique mal mesurée restait persistée sans aucun moyen de la reprendre. Diagnostic
       final en attente d'une capture prise après remise à zéro de l'étalonnage.
+- [x] Ouverture en mode Viser : l'app sert d'abord à identifier ce qu'on a devant soi.
+      `DEFAULT_MODE = 'viser'` (lib/viewpoint/url, testé) — une adresse nue ouvre la visée,
+      les liens partagés portent `mode=panorama` ou `mode=carte` explicitement (le mode par
+      défaut n'est plus écrit dans l'URL). Corollaire indispensable : sans coordonnées dans
+      l'URL, la position est demandée dès l'ouverture (une seule fois, échec ou refus =
+      point de vue par défaut) — un horizon calculé depuis Chamonix n'a aucun sens sur la
+      caméra de quelqu'un qui vise les Bauges. La provenance du point de vue (défaut, lien,
+      GPS, recherche, carte) est suivie, exposée au rapport de débogage (fournisseur `app`)
+      et gravée dans la capture : « point de vue 45.5881, 5.8764 (GPS) ». Vérifié au
+      navigateur : adresse nue → onglet Viser actif, géolocalisation appliquée, URL
+      resynchronisée sans `mode=` ; `?mode=panorama` ouvre toujours le panorama.

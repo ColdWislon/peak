@@ -1,4 +1,5 @@
 import { fr } from '../i18n/fr';
+import type { ViewpointSource } from '../viewpoint/url';
 
 /**
  * Capture de la vue caméra pour le débogage (mode Viser). Le rapport JSON dit
@@ -104,6 +105,8 @@ export interface SnapshotAim {
   time: Date;
   /** Point de vue utilisé pour tous les calculs (pas forcément le GPS). */
   viewpoint: { lat: number; lon: number };
+  /** D'où il vient : un horizon faux commence souvent par un point de vue faux. */
+  viewpointSource: ViewpointSource;
   /** Altitude de l'œil (m) tirée du relief au point de vue. */
   eyeElevationM: number;
   headingDeg: number;
@@ -133,6 +136,14 @@ export interface SnapshotAim {
 }
 
 /** Motif ajouté à la ligne « sommets » quand le compte n'est pas nominal. */
+const VIEWPOINT_SOURCE_FR: Record<ViewpointSource, string> = {
+  defaut: 'défaut',
+  url: 'lien',
+  gps: 'GPS',
+  recherche: 'recherche',
+  carte: 'carte',
+};
+
 const PEAKS_STATUS_FR: Record<PeaksStatus, string | null> = {
   idle: 'non demandés',
   searching: 'chargement en cours',
@@ -158,7 +169,8 @@ export function snapshotCaption(aim: SnapshotAim): string[] {
   )}:${p(aim.time.getMinutes())}`;
   return [
     `Cimes · ${stamp} · point de vue ${aim.viewpoint.lat.toFixed(4)}, ` +
-      `${aim.viewpoint.lon.toFixed(4)} · œil ${Math.round(aim.eyeElevationM)} m`,
+      `${aim.viewpoint.lon.toFixed(4)} (${VIEWPOINT_SOURCE_FR[aim.viewpointSource]})` +
+      ` · œil ${Math.round(aim.eyeElevationM)} m`,
     `cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
       ` · recalage ${sign(aim.headingOffsetDeg)} / ${sign(aim.pitchOffsetDeg)}`,
     `FOV vue ${num(aim.screenFovDeg, 1)}° · capteur ${num(aim.shortFovDeg, 1)}°` +

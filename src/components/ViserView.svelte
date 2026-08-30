@@ -37,6 +37,7 @@
     VisibilityRequest,
     VisibilityResponse,
   } from '../lib/visibility/protocol';
+  import type { ViewpointSource } from '../lib/viewpoint/url';
   import CompassRibbon from './CompassRibbon.svelte';
   import PeakLabels from './PeakLabels.svelte';
 
@@ -64,7 +65,8 @@
   const ZOOM_MIN = 1;
   const ZOOM_MAX = 4;
 
-  let { viewpoint }: { viewpoint: LatLon } = $props();
+  let { viewpoint, viewpointSource }: { viewpoint: LatLon; viewpointSource: ViewpointSource } =
+    $props();
 
   let container: HTMLDivElement;
   let video: HTMLVideoElement;
@@ -525,6 +527,7 @@
     const aimInfo: SnapshotAim = {
       time: new Date(),
       viewpoint: { lat: viewpoint.lat, lon: viewpoint.lon },
+      viewpointSource,
       eyeElevationM: eyeElevation,
       headingDeg: normalizeBearing(aim.heading + headingOffset),
       pitchDeg: aim.pitch + pitchOffset,
@@ -589,7 +592,7 @@
         sw: Math.round(crop.sw),
         sh: Math.round(crop.sh),
       },
-      pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon },
+      pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon, source: viewpointSource },
       octets: blob.size,
     };
     lastCapture = meta;
