@@ -23,6 +23,13 @@ export interface Settings {
    * l'ancien `cameraFovDeg` (FOV d'écran, sémantique différente : ignoré).
    */
   cameraShortFovDeg: number | null;
+  /**
+   * Aspect (largeur / hauteur) du flux caméra sur lequel ce FOV a été mesuré ;
+   * null = inconnu (mesure antérieure à ce champ). Un flux de forme différente
+   * (16:9 vs 4:3) ne voit pas le même angle sur son petit côté : la mesure ne
+   * s'y applique pas.
+   */
+  cameraStreamAspect: number | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   units: 'metric',
   names: 'fr',
   cameraShortFovDeg: null,
+  cameraStreamAspect: null,
 };
 
 const QUALITIES: readonly RenderQuality[] = ['auto', 'elevee', 'eco'];
@@ -57,6 +65,13 @@ export function parseSettings(raw: string | null): Settings {
         parsed.cameraShortFovDeg >= 30 &&
         parsed.cameraShortFovDeg <= 100
           ? parsed.cameraShortFovDeg
+          : null,
+      cameraStreamAspect:
+        typeof parsed.cameraStreamAspect === 'number' &&
+        Number.isFinite(parsed.cameraStreamAspect) &&
+        parsed.cameraStreamAspect > 0.2 &&
+        parsed.cameraStreamAspect < 5
+          ? parsed.cameraStreamAspect
           : null,
     };
   } catch {

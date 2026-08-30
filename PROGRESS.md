@@ -305,3 +305,18 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       et gravée dans la capture : « point de vue 45.5881, 5.8764 (GPS) ». Vérifié au
       navigateur : adresse nue → onglet Viser actif, géolocalisation appliquée, URL
       resynchronisée sans `mode=` ; `?mode=panorama` ouvre toujours le panorama.
+- [x] Rapport terrain n° 4 : la légende enrichie donne la cause. « flux 640×480 » (iOS sert
+      du VGA sans contrainte) et surtout « FOV vue 17,5° (en butée) » alors que la vue est
+      dessinée à 22,3° : le garde-fou n° 2 refusait bien d'adopter cette optique bornée,
+      mais le CAP et l'ASSIETTE trouvés AVEC elle étaient tout de même appliqués. Or ils ne
+      valent que pour le FOV qui les a produits — d'où un horizon qui colle au bord gauche
+      et décroche de 3° au centre (mesuré sur l'image : +2 px à gauche, +41 px au centre,
+      +19 px à droite, pour 0,076°/px). Corrigé : quand la mesure d'optique n'est pas
+      adoptée, la mise en correspondance est REFAITE au FOV réellement en usage, et c'est
+      celle-là qui s'applique (test unitaire : au FOV de la vue, le résidu de la mise en
+      correspondance refaite est plus bas que celui héritée du FOV écarté). Deux corollaires :
+      le flux est demandé plus fin en gardant le 4:3 (`width/height: ideal 1600×1200` —
+      changer de forme changerait le FOV du petit côté), et l'aspect du flux est mémorisé
+      AVEC l'étalonnage (`cameraStreamAspect`) : un flux de forme différente rend la mesure
+      caduque et l'app repart du défaut plutôt que d'appliquer un angle faux en silence.
+      La légende distingue enfin le FOV appliqué de l'optique mesurée écartée.

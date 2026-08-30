@@ -9,6 +9,7 @@ import {
   pixelToAngles,
   skylineScreenPoints,
   type DetectedSkyline,
+  type SkylineMatch,
 } from './skyline';
 
 describe('computeDemSkyline', () => {
@@ -172,6 +173,44 @@ describe('matchSkyline', () => {
     });
     expect(large!.fovAtBound).toBe(false);
     expect(Math.abs(large!.fovDeg - 68)).toBeLessThanOrEqual(2);
+  });
+
+  it('les corrections d’un FOV écarté ne valent pas au FOV en usage', () => {
+    // Rapport terrain n° 4 : l'optique mesurée butait sur une borne, elle a
+    // donc été écartée — mais cap et assiette trouvés AVEC elle étaient quand
+    // même appliqués à une vue dessinée avec un autre FOV. Le résidu ci-dessous
+    // le mesure : au FOV réellement en usage, la mise en correspondance refaite
+    // à ce FOV colle mieux que celle héritée du FOV écarté.
+    const VIEW_FOV = 55;
+    const detected = renderDetected(120, 90, 68);
+    const view = { headingDeg: 130, pitchDeg: 4, fovDeg: VIEW_FOV };
+
+    /** Erreur absolue moyenne (plafonnée) des colonnes, au FOV de la vue. */
+    const residual = (match: SkylineMatch): number => {
+      let sum = 0;
+      for (let x = 0; x < detected.width; x++) {
+        const { azRelDeg, elevDeg } = pixelToAngles(
+          x,
+          detected.rows[x]!,
+          detected.width,
+          detected.height,
+          view.pitchDeg,
+          VIEW_FOV,
+        );
+        const expected = demDeg(view.headingDeg + match.headingOffsetDeg + azRelDeg);
+        sum += Math.min(3, Math.abs(expected - (elevDeg + match.pitchOffsetDeg)));
+      }
+      return sum / detected.width;
+    };
+
+    const brides = matchSkyline(detected, view, dem, {
+      demStepDeg: DEM_STEP,
+      fovSearch: { minDeg: 40, maxDeg: 60 },
+    })!;
+    expect(brides.fovAtBound).toBe(true);
+    const auFovDeLaVue = matchSkyline(detected, view, dem, { demStepDeg: DEM_STEP })!;
+
+    expect(residual(auFovDeLaVue)).toBeLessThan(residual(brides));
   });
 
   it('garde le FOV courant sans estimation demandée', () => {

@@ -36,7 +36,15 @@ const AIM: SnapshotAim = {
   fovCalibrated: true,
   zoom: 2.4,
   stream: { w: 1280, h: 720 },
-  calibration: { applied: true, maeDeg: 0.42, inlierRatio: 0.78, fovDeg: 42.35, fovAtBound: false },
+  calibration: {
+    applied: true,
+    maeDeg: 0.42,
+    inlierRatio: 0.78,
+    fovDeg: 42.35,
+    fovAdopted: true,
+    fovEstimateDeg: 42.35,
+    fovAtBound: false,
+  },
   sensors: true,
   horizon: true,
   peaksStatus: 'ok',
@@ -77,7 +85,8 @@ describe('capture de débogage', () => {
     expect(lines[2]).toContain('zoom 2,4×');
     expect(lines[2]).toContain('flux 1280×720');
     expect(lines[3]).toBe(
-      'dernier recalage : appliqué · MAE 0,42° · 78 % concordantes · FOV vue 42,4°',
+      'dernier recalage : appliqué · MAE 0,42° · 78 % concordantes · FOV vue 42,4° ' +
+        '(optique adoptée)',
     );
     expect(lines[4]).toBe(
       'capteurs actifs · horizon tracé · sommets : 128 chargés, 12 en vue, 7 dans le champ',
@@ -100,16 +109,33 @@ describe('capture de débogage', () => {
         maeDeg: null,
         inlierRatio: null,
         fovDeg: null,
+        fovAdopted: false,
+        fovEstimateDeg: null,
         fovAtBound: false,
       },
     });
     expect(nonDetecte[3]).toContain('refusé, horizon non détecté');
-    const enButee = snapshotCaption({
+  });
+
+  it('distingue le FOV appliqué de l’optique mesurée écartée', () => {
+    // Cas du rapport terrain n° 4 : la mesure butait à 17,5°, le recalage a
+    // donc été refait — et appliqué — au FOV réellement à l'écran.
+    const ecartee = snapshotCaption({
       ...AIM,
-      calibration: { ...AIM.calibration!, applied: false, maeDeg: 1.8, fovAtBound: true },
+      calibration: {
+        ...AIM.calibration!,
+        fovDeg: 22.3,
+        fovAdopted: false,
+        fovEstimateDeg: 17.5,
+        fovAtBound: true,
+      },
     });
-    expect(enButee[3]).toContain('refusé · MAE 1,80°');
-    expect(enButee[3]).toContain('(en butée)');
+    expect(ecartee[3]).toContain('FOV vue 22,3° (mesure 17,5° écartée, en butée)');
+    const sansMesure = snapshotCaption({
+      ...AIM,
+      calibration: { ...AIM.calibration!, fovAdopted: false, fovEstimateDeg: null },
+    });
+    expect(sansMesure[3]).toContain('(optique inchangée)');
   });
 
   it('dit l’état dégradé : sans capteurs, sans horizon, FOV par défaut', () => {

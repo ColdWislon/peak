@@ -93,9 +93,13 @@ export interface SnapshotCalibration {
   maeDeg: number | null;
   /** Part de colonnes concordantes (0..1), null sans résultat. */
   inlierRatio: number | null;
-  /** FOV vertical de vue retenu par le matcher (°), null sans résultat. */
+  /** FOV vertical de vue du recalage appliqué (°), null sans résultat. */
   fovDeg: number | null;
-  /** Vrai si ce FOV butait sur une borne de recherche (valeur non mesurée). */
+  /** Vrai si l'optique mesurée a été adoptée (sinon le FOV en cours a servi). */
+  fovAdopted: boolean;
+  /** Optique mesurée par le matcher (° de vue), même écartée ; null sans résultat. */
+  fovEstimateDeg: number | null;
+  /** Vrai si cette mesure butait sur une borne de recherche (valeur non mesurée). */
   fovAtBound: boolean;
 }
 
@@ -193,11 +197,16 @@ function calibrationLine(calibration: SnapshotCalibration | null): string {
   if (calibration.maeDeg === null || calibration.inlierRatio === null) {
     return 'dernier recalage : refusé, horizon non détecté dans l’image';
   }
+  const optique = calibration.fovAdopted
+    ? 'optique adoptée'
+    : calibration.fovEstimateDeg === null
+      ? 'optique inchangée'
+      : `mesure ${num(calibration.fovEstimateDeg, 1)}° écartée` +
+        `${calibration.fovAtBound ? ', en butée' : ''}`;
   return (
     `dernier recalage : ${calibration.applied ? 'appliqué' : 'refusé'}` +
     ` · MAE ${num(calibration.maeDeg, 2)}° · ${Math.round(calibration.inlierRatio * 100)} %` +
-    ` concordantes · FOV vue ${num(calibration.fovDeg ?? 0, 1)}°` +
-    `${calibration.fovAtBound ? ' (en butée)' : ''}`
+    ` concordantes · FOV vue ${num(calibration.fovDeg ?? 0, 1)}° (${optique})`
   );
 }
 

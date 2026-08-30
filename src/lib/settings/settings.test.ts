@@ -8,6 +8,7 @@ describe('parseSettings', () => {
       units: 'imperial',
       names: 'local',
       cameraShortFovDeg: 68.5,
+      cameraStreamAspect: 1.333,
     } as const;
     expect(parseSettings(serializeSettings(settings))).toEqual(settings);
   });
@@ -19,6 +20,14 @@ describe('parseSettings', () => {
 
   it('ignore l’ancien cameraFovDeg (FOV d’écran, sémantique différente)', () => {
     expect(parseSettings('{"cameraFovDeg":68.5}').cameraShortFovDeg).toBeNull();
+  });
+
+  it('rejette un aspect de flux absurde, garde un aspect plausible', () => {
+    expect(parseSettings('{"cameraStreamAspect":0}').cameraStreamAspect).toBeNull();
+    expect(parseSettings('{"cameraStreamAspect":"16:9"}').cameraStreamAspect).toBeNull();
+    expect(parseSettings('{"cameraStreamAspect":1.778}').cameraStreamAspect).toBe(1.778);
+    // Étalonnage d'avant ce champ : aspect inconnu, la mesure reste utilisable.
+    expect(parseSettings('{"cameraShortFovDeg":55}').cameraStreamAspect).toBeNull();
   });
 
   it('retombe sur les défauts pour null, JSON cassé ou valeurs inconnues', () => {
@@ -35,6 +44,7 @@ describe('parseSettings', () => {
       units: 'imperial',
       names: 'fr',
       cameraShortFovDeg: null,
+      cameraStreamAspect: null,
     });
   });
 

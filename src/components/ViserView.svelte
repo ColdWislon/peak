@@ -114,9 +114,27 @@
   /** Dernier événement absolu vu : le flux relatif d'Android est alors ignoré. */
   let lastAbsoluteMs = Number.NEGATIVE_INFINITY;
 
+  /** Aspect du flux caméra courant (largeur / hauteur), null avant la vidéo. */
+  function streamAspect(): number | null {
+    return video && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null;
+  }
+
+  /**
+   * Vrai si l'étalonnage mémorisé a été mesuré sur un flux de même forme.
+   * Un 16:9 est une découpe d'un 4:3 : son petit côté ne voit pas le même
+   * angle, la valeur mémorisée serait fausse en silence.
+   */
+  function storedFovUsable(): boolean {
+    if (settings.cameraShortFovDeg === null) return false;
+    const stored = settings.cameraStreamAspect;
+    const current = streamAspect();
+    if (stored === null || current === null) return true; // rien à comparer
+    return Math.abs(current - stored) / stored < 0.02;
+  }
+
   /** FOV petit côté du capteur : le web ne l'expose pas — étalonné, persisté. */
   function shortFov(): number {
-    return settings.cameraShortFovDeg ?? DEFAULT_SHORT_FOV_DEG;
+    return storedFovUsable() ? settings.cameraShortFovDeg! : DEFAULT_SHORT_FOV_DEG;
   }
 
   /**
@@ -278,12 +296,25 @@
         }
       }
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          // Sans contrainte, iOS sert du 640×480 : trop grossier pour détecter
+          // une crête lointaine (rapport terrain n° 4). On demande plus fin EN
+          // GARDANT le 4:3 — changer de forme changerait le FOV du petit côté
+          // et invaliderait l'étalonnage (l'aspect est vérifié au démarrage).
+          width: { ideal: 1600 },
+          height: { ideal: 1200 },
+        },
         audio: false,
       });
       video.srcObject = stream;
       await video.play();
-      logDebug('viser:start', { video: { w: video.videoWidth, h: video.videoHeight } });
+      logDebug('viser:start', {
+        video: { w: video.videoWidth, h: video.videoHeight },
+        fovPetitCote: shortFov(),
+        etalonnageUtilisable: storedFovUsable(),
+        aspectEtalonnage: settings.cameraStreamAspect,
+      });
     } catch (error) {
       logDebug('viser:erreur', { etape: 'start', detail: String(error) });
       phase = 'error';
@@ -333,21 +364,34 @@
       const boundFov = (shortSide: number) =>
         screenFovDeg(shortSide, video.videoWidth, video.videoHeight, viewW, viewH, zoom);
       const detected = detectImageSkyline(image.data, width, height);
-      const match = matchSkyline(
-        detected,
-        {
-          headingDeg: normalizeBearing(aim.heading + headingOffset),
-          pitchDeg: aim.pitch + pitchOffset,
-          fovDeg: screenFov,
-        },
-        demSkyline,
-        {
-          demStepDeg: SKYLINE_STEP_DEG,
-          // Bornes exprimées côté vue : mêmes limites physiques du capteur,
-          // vues à travers la découpe courante.
-          fovSearch: { minDeg: boundFov(SHORT_FOV_MIN_DEG), maxDeg: boundFov(SHORT_FOV_MAX_DEG) },
-        },
-      );
+      const view = {
+        headingDeg: normalizeBearing(aim.heading + headingOffset),
+        pitchDeg: aim.pitch + pitchOffset,
+        fovDeg: screenFov,
+      };
+      const estimate = matchSkyline(detected, view, demSkyline, {
+        demStepDeg: SKYLINE_STEP_DEG,
+        // Bornes exprimées côté vue : mêmes limites physiques du capteur,
+        // vues à travers la découpe courante.
+        fovSearch: { minDeg: boundFov(SHORT_FOV_MIN_DEG), maxDeg: boundFov(SHORT_FOV_MAX_DEG) },
+      });
+      // L'optique mesurée n'est adoptée que sur un alignement excellent et non
+      // borné (surface de coût plate en FOV, optimum en butée = valeur non
+      // mesurée).
+      const adoptFov =
+        estimate !== null &&
+        estimate.maeDeg <= 0.8 &&
+        !estimate.fovAtBound &&
+        isMatchReliable(estimate);
+      // Cap et assiette ne valent QUE pour le FOV avec lequel ils ont été
+      // trouvés : appliquer ceux d'un FOV qu'on écarte, c'est corriger la visée
+      // pour une autre optique que celle qui dessine l'écran — l'horizon collait
+      // au bord et décrochait de 3° au centre (rapport terrain n° 4). Quand la
+      // mesure n'est pas adoptée, on refait la mise en correspondance au FOV
+      // courant, seul en usage.
+      const match = adoptFov
+        ? estimate
+        : matchSkyline(detected, view, demSkyline, { demStepDeg: SKYLINE_STEP_DEG });
       const reliable = match !== null && isMatchReliable(match);
 
       const conf = [...detected.confidence].sort((a, b) => a - b);
@@ -365,12 +409,19 @@
           sw: Math.round(crop.sw),
           sh: Math.round(crop.sh),
         },
+        optique: estimate
+          ? {
+              fov: Number(estimate.fovDeg.toFixed(1)),
+              enButee: estimate.fovAtBound,
+              mae: Number.isFinite(estimate.maeDeg) ? Number(estimate.maeDeg.toFixed(3)) : null,
+              adoptee: adoptFov,
+            }
+          : null,
         resultat: match
           ? {
               cap: Number(match.headingOffsetDeg.toFixed(2)),
               assiette: Number(match.pitchOffsetDeg.toFixed(2)),
               fov: Number(match.fovDeg.toFixed(1)),
-              fovEnButee: match.fovAtBound,
               mae: Number.isFinite(match.maeDeg) ? Number(match.maeDeg.toFixed(3)) : null,
               colonnes: match.usedColumns,
               concordantes: match.inlierColumns,
@@ -385,7 +436,9 @@
         inlierRatio:
           match && match.usedColumns > 0 ? match.inlierColumns / match.usedColumns : null,
         fovDeg: match ? match.fovDeg : null,
-        fovAtBound: match ? match.fovAtBound : false,
+        fovAdopted: adoptFov,
+        fovEstimateDeg: estimate ? estimate.fovDeg : null,
+        fovAtBound: estimate ? estimate.fovAtBound : false,
       };
 
       if (!match || !reliable) {
@@ -401,7 +454,7 @@
         // bute sur une borne de recherche (valeur bornée, pas mesurée). On
         // stocke le FOV petit côté du capteur (invariant en rotation),
         // reconverti depuis la vue.
-        if (match.maeDeg <= 0.8 && !match.fovAtBound) {
+        if (adoptFov) {
           const measured = shortSideFovDeg(
             match.fovDeg,
             video.videoWidth,
@@ -411,6 +464,12 @@
             zoom,
           );
           settings.cameraShortFovDeg = Math.min(100, Math.max(25, Math.round(measured * 2) / 2));
+          // L'angle du petit côté dépend de la FORME du cadre : un flux 16:9 est
+          // une découpe d'un 4:3. On mémorise l'aspect avec la mesure, faute de
+          // quoi un changement de flux rendrait l'étalonnage faux en silence.
+          settings.cameraStreamAspect = Number(
+            (video.videoWidth / Math.max(1, video.videoHeight)).toFixed(3),
+          );
           saveSettings();
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
         } else {
@@ -535,7 +594,7 @@
       pitchOffsetDeg: pitchOffset,
       screenFovDeg: currentScreenFov(),
       shortFovDeg: shortFov(),
-      fovCalibrated: settings.cameraShortFovDeg !== null,
+      fovCalibrated: storedFovUsable(),
       zoom,
       stream: { w: video.videoWidth, h: video.videoHeight },
       calibration: lastCalibration,
@@ -731,6 +790,7 @@
       },
       fovEcran: Number(currentScreenFov().toFixed(1)),
       fovPetitCote: shortFov(),
+      etalonnageUtilisable: storedFovUsable(),
       zoom: Number(zoom.toFixed(2)),
       video: video ? { w: video.videoWidth, h: video.videoHeight } : null,
       conteneur: container ? { w: container.clientWidth, h: container.clientHeight } : null,
