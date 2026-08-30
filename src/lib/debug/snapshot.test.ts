@@ -34,6 +34,8 @@ const AIM: SnapshotAim = {
   shortFovDeg: 55,
   fovCalibrated: true,
   zoom: 2.4,
+  stream: { w: 1280, h: 720 },
+  calibration: { applied: true, maeDeg: 0.42, inlierRatio: 0.78, fovDeg: 42.35, fovAtBound: false },
   sensors: true,
   horizon: true,
   peaksStatus: 'ok',
@@ -60,9 +62,9 @@ describe('capture de débogage', () => {
     expect(name).toBe('cimes-vue-20260830-090205.jpg');
   });
 
-  it('grave une légende lisible seule (lieu, cap, recalages, FOV, sommets)', () => {
+  it('grave une légende lisible seule (lieu, cap, FOV, recalage, sommets)', () => {
     const lines = snapshotCaption(AIM);
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(5);
     expect(lines[0]).toContain('30/08 11:18');
     expect(lines[0]).toContain('point de vue 45.5893, 5.9013');
     expect(lines[0]).toContain('œil 412 m');
@@ -72,9 +74,36 @@ describe('capture de débogage', () => {
     expect(lines[2]).toContain('FOV vue 42,4°');
     expect(lines[2]).toContain('(étalonné)');
     expect(lines[2]).toContain('zoom 2,4×');
+    expect(lines[2]).toContain('flux 1280×720');
     expect(lines[3]).toBe(
+      'dernier recalage : appliqué · MAE 0,42° · 78 % concordantes · FOV vue 42,4°',
+    );
+    expect(lines[4]).toBe(
       'capteurs actifs · horizon tracé · sommets : 128 chargés, 12 en vue, 7 dans le champ',
     );
+  });
+
+  it('dit le verdict du dernier recalage, y compris son absence', () => {
+    expect(snapshotCaption({ ...AIM, calibration: null })[3]).toBe(
+      'dernier recalage : aucun depuis le démarrage',
+    );
+    const nonDetecte = snapshotCaption({
+      ...AIM,
+      calibration: {
+        applied: false,
+        maeDeg: null,
+        inlierRatio: null,
+        fovDeg: null,
+        fovAtBound: false,
+      },
+    });
+    expect(nonDetecte[3]).toContain('refusé, horizon non détecté');
+    const enButee = snapshotCaption({
+      ...AIM,
+      calibration: { ...AIM.calibration!, applied: false, maeDeg: 1.8, fovAtBound: true },
+    });
+    expect(enButee[3]).toContain('refusé · MAE 1,80°');
+    expect(enButee[3]).toContain('(en butée)');
   });
 
   it('dit l’état dégradé : sans capteurs, sans horizon, FOV par défaut', () => {
@@ -86,8 +115,8 @@ describe('capture de débogage', () => {
       labels: 0,
     });
     expect(lines[2]).toContain('(défaut)');
-    expect(lines[3]).toContain('sans capteurs · horizon non calculé');
-    expect(lines[3]).toContain('0 dans le champ');
+    expect(lines[4]).toContain('sans capteurs · horizon non calculé');
+    expect(lines[4]).toContain('0 dans le champ');
   });
 
   it('distingue « pas de sommets » de « aucun dans le champ »', () => {
@@ -99,7 +128,7 @@ describe('capture de débogage', () => {
       peaksVisible: 0,
       labels: 0,
     });
-    expect(masques[3]).toContain('128 chargés, 0 en vue, 0 dans le champ (tous masqués');
+    expect(masques[4]).toContain('128 chargés, 0 en vue, 0 dans le champ (tous masqués');
     const overpass = snapshotCaption({
       ...AIM,
       peaksStatus: 'error',
@@ -107,10 +136,10 @@ describe('capture de débogage', () => {
       peaksVisible: 0,
       labels: 0,
     });
-    expect(overpass[3]).toContain('0 chargés, 0 en vue, 0 dans le champ (Overpass indisponible)');
+    expect(overpass[4]).toContain('0 chargés, 0 en vue, 0 dans le champ (Overpass indisponible)');
     // Statut nominal : aucun motif ajouté, les trois nombres suffisent.
     const horsChamp = snapshotCaption({ ...AIM, labels: 0 });
-    expect(horsChamp[3]).toMatch(/12 en vue, 0 dans le champ$/);
+    expect(horsChamp[4]).toMatch(/12 en vue, 0 dans le champ$/);
   });
 
   it('n’expose une source qu’entre l’enregistrement et sa désinscription', async () => {

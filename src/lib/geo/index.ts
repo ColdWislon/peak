@@ -38,6 +38,12 @@ export function normalizeBearing(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }
 
+/** Ramène un écart angulaire dans (−180, 180] : l'arc court, signé. */
+export function signedDeltaDeg(deg: number): number {
+  const wrapped = normalizeBearing(deg);
+  return wrapped > 180 ? wrapped - 360 : wrapped;
+}
+
 /** Distance orthodromique (m) entre deux points, formule de haversine. */
 export function haversineDistance(a: LatLon, b: LatLon): number {
   const phi1 = degToRad(a.lat);

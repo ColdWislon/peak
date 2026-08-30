@@ -202,7 +202,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     });
     // L'image est rendue à la résolution de la DÉCOUPE SOURCE (plus fine que
     // les points CSS de la vue), légende ajoutée SOUS la photo (rien de masqué).
-    const band = captionLayout(shot.width, 4).height;
+    const band = captionLayout(shot.width, 5).height;
     const photoH = shot.height - band;
     const scale = shot.width / viser.w;
     expect(scale).toBeGreaterThan(1.2);

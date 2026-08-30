@@ -280,3 +280,17 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       et le motif du statut, plus l'horodatage, le point de vue et l'altitude de l'œil. Au passage : la capture est rendue à la résolution de la découpe source (et
       non aux points CSS de la vue — moitié du détail perdu sur écran dense) et la légende
       s'ajoute SOUS la photo, qui n'est plus masquée d'un pixel.
+- [x] Rapport terrain n° 3 (capture depuis Saint-Jeoire-Prieuré, Bauges au cap 86°) : le
+      correctif n° 2 tient — FOV mesuré à 50,5° (plus en butée), 300 sommets chargés et 16
+      en ligne de vue. Mais l'horizon calculé passe SOUS la crête réelle : mesuré sur
+      l'image, écart nul à gauche, +27 px (≈ 3,0°) au centre, +19 px à droite — un écart de
+      FORME (cap résiduel ou FOV encore faux), pas un biais d'assiette constant. Le bandeau
+      montrait aussi « recalage +380,5° » : le recalage de cap s'accumulait sans repli sur
+      l'arc court, signature d'un utilisateur qui corrige au doigt un alignement qui
+      résiste. Corrigés/instrumentés : `signedDeltaDeg` (lib/geo, testé) ramène le recalage
+      dans (−180, 180] au glissé comme au calibrage ; la légende grave désormais la
+      définition du flux caméra (4:3 ou 16:9 — décisif pour juger le FOV petit côté) et le
+      verdict du dernier recalage (appliqué/refusé, MAE, % de colonnes concordantes, FOV
+      retenu, mention « en butée ») ; ⚙ gagne « Oublier l'étalonnage caméra », sans quoi une
+      optique mal mesurée restait persistée sans aucun moyen de la reprendre. Diagnostic
+      final en attente d'une capture prise après remise à zéro de l'étalonnage.

@@ -84,6 +84,20 @@ export function snapshotFileName(date: Date): string {
 /** Statut du chargement des sommets, tel que l'affiche le mode Viser. */
 export type PeaksStatus = 'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok';
 
+/** Verdict du dernier recalage automatique tenté dans cette session de visée. */
+export interface SnapshotCalibration {
+  /** Vrai si la correction a été appliquée (alignement jugé fiable). */
+  applied: boolean;
+  /** null quand le matcher n'a rien rendu (trop peu de colonnes exploitables). */
+  maeDeg: number | null;
+  /** Part de colonnes concordantes (0..1), null sans résultat. */
+  inlierRatio: number | null;
+  /** FOV vertical de vue retenu par le matcher (°), null sans résultat. */
+  fovDeg: number | null;
+  /** Vrai si ce FOV butait sur une borne de recherche (valeur non mesurée). */
+  fovAtBound: boolean;
+}
+
 /** État de visée décrit par la capture (gravé dans l'image et journalisé). */
 export interface SnapshotAim {
   /** Horodatage de la capture. */
@@ -103,6 +117,10 @@ export interface SnapshotAim {
   /** Vrai si ce FOV vient d'un calibrage, faux s'il reste la valeur par défaut. */
   fovCalibrated: boolean;
   zoom: number;
+  /** Définition du flux caméra (px) : décide si le petit côté est du 4:3 ou du 16:9. */
+  stream: { w: number; h: number };
+  /** Dernier recalage automatique tenté, null si aucun depuis le démarrage. */
+  calibration: SnapshotCalibration | null;
   /** Faux quand les capteurs manquent (visée au doigt). */
   sensors: boolean;
   /** Vrai quand l'horizon du relief est tracé sur l'image. */
@@ -144,7 +162,9 @@ export function snapshotCaption(aim: SnapshotAim): string[] {
     `cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
       ` · recalage ${sign(aim.headingOffsetDeg)} / ${sign(aim.pitchOffsetDeg)}`,
     `FOV vue ${num(aim.screenFovDeg, 1)}° · capteur ${num(aim.shortFovDeg, 1)}°` +
-      ` ${aim.fovCalibrated ? '(étalonné)' : '(défaut)'} · zoom ${num(aim.zoom, 1)}×`,
+      ` ${aim.fovCalibrated ? '(étalonné)' : '(défaut)'} · zoom ${num(aim.zoom, 1)}×` +
+      ` · flux ${aim.stream.w}×${aim.stream.h}`,
+    calibrationLine(aim.calibration),
     `${aim.sensors ? 'capteurs actifs' : 'sans capteurs'} · ` +
       `${aim.horizon ? 'horizon tracé' : 'horizon non calculé'} · ` +
       // Trois nombres distincts : sans eux, « 0 étiquette » ne dit pas si les
@@ -153,6 +173,20 @@ export function snapshotCaption(aim: SnapshotAim): string[] {
       `${aim.labels} dans le champ` +
       (PEAKS_STATUS_FR[aim.peaksStatus] ? ` (${PEAKS_STATUS_FR[aim.peaksStatus]})` : ''),
   ];
+}
+
+/** Verdict du dernier recalage, en clair : dit s'il a mordu et sur quoi. */
+function calibrationLine(calibration: SnapshotCalibration | null): string {
+  if (!calibration) return 'dernier recalage : aucun depuis le démarrage';
+  if (calibration.maeDeg === null || calibration.inlierRatio === null) {
+    return 'dernier recalage : refusé, horizon non détecté dans l’image';
+  }
+  return (
+    `dernier recalage : ${calibration.applied ? 'appliqué' : 'refusé'}` +
+    ` · MAE ${num(calibration.maeDeg, 2)}° · ${Math.round(calibration.inlierRatio * 100)} %` +
+    ` concordantes · FOV vue ${num(calibration.fovDeg ?? 0, 1)}°` +
+    `${calibration.fovAtBound ? ' (en butée)' : ''}`
+  );
 }
 
 /** Issue de la remise du fichier à l'utilisateur. */

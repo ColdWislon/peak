@@ -12,8 +12,9 @@
     type CaptionLayout,
     type DebugSnapshot,
     type SnapshotAim,
+    type SnapshotCalibration,
   } from '../lib/debug/snapshot';
-  import { normalizeBearing, type LatLon } from '../lib/geo';
+  import { normalizeBearing, signedDeltaDeg, type LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
   import { topPeaks, type Peak } from '../lib/peaks';
@@ -99,6 +100,8 @@
   let captureMessage = $state<string | null>(null);
   let captureTimer: ReturnType<typeof setTimeout> | undefined;
   let lastCapture: Record<string, unknown> | null = null;
+  /** Verdict du dernier recalage tenté : gravé dans la capture de débogage. */
+  let lastCalibration: SnapshotCalibration | null = null;
   /** Zoom numérique courant : la vidéo est agrandie en CSS, le FOV suit. */
   let zoom = $state(1);
   let gotSensor = false;
@@ -374,10 +377,21 @@
         applique: reliable,
       });
 
+      lastCalibration = {
+        applied: reliable,
+        maeDeg: match && Number.isFinite(match.maeDeg) ? match.maeDeg : null,
+        inlierRatio:
+          match && match.usedColumns > 0 ? match.inlierColumns / match.usedColumns : null,
+        fovDeg: match ? match.fovDeg : null,
+        fovAtBound: match ? match.fovAtBound : false,
+      };
+
       if (!match || !reliable) {
         calibMessage = fr.viser.horizonNotFound;
       } else {
-        headingOffset += match.headingOffsetDeg;
+        // Arc court : sans cela, des recalages successifs s'empilent jusqu'à
+        // des « +380° » incompréhensibles dans le rapport (rapport terrain n° 3).
+        headingOffset = signedDeltaDeg(headingOffset + match.headingOffsetDeg);
         pitchOffset += match.pitchOffsetDeg;
         const deg = Math.round(match.headingOffsetDeg);
         // La surface de coût est plate en FOV : on ne persiste l'optique
@@ -520,6 +534,8 @@
       shortFovDeg: shortFov(),
       fovCalibrated: settings.cameraShortFovDeg !== null,
       zoom,
+      stream: { w: video.videoWidth, h: video.videoHeight },
+      calibration: lastCalibration,
       sensors: !sensorless && gotSensor,
       horizon: horizonScreen.length > 1,
       peaksStatus,
@@ -664,7 +680,7 @@
     } else {
       // Recalage bi-axe : ↔ corrige la boussole, ↕ corrige le biais d'assiette
       // (les capteurs de gravité dérivent aussi de plusieurs degrés).
-      headingOffset -= dx * degPerPx;
+      headingOffset = signedDeltaDeg(headingOffset - dx * degPerPx);
       pitchOffset = Math.max(-20, Math.min(20, pitchOffset + dy * degPerPx));
     }
     relayout();
@@ -720,6 +736,7 @@
       visibles: candidates.length,
       horizonCalcule: demSkyline !== null,
       oeil: Math.round(eyeElevation),
+      dernierRecalage: lastCalibration,
       derniereCapture: lastCapture,
     }));
     return () => {

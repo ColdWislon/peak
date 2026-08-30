@@ -39,6 +39,15 @@
     setTimeout(() => (reportMessage = null), 6000);
   }
 
+  /** Oublie l'optique mesurée : un étalonnage douteux poisonnait chaque session
+   *  (il est persisté), sans aucun moyen de le reprendre depuis l'interface. */
+  function forgetFov(): void {
+    settings.cameraShortFovDeg = null;
+    saveSettings();
+    captureMessage = fr.settings.fovForgotten;
+    setTimeout(() => (captureMessage = null), 6000);
+  }
+
   /** Capture de la vue caméra : image + repères, à joindre à la conversation. */
   async function captureView(): Promise<void> {
     if (capturing) return;
@@ -185,6 +194,19 @@
           {canCapture ? fr.settings.captureHint : fr.settings.captureUnavailable}
         </p>
         {#if captureMessage}<p class="report-note" role="status">{captureMessage}</p>{/if}
+
+        <button
+          class="report capture"
+          onclick={forgetFov}
+          disabled={settings.cameraShortFovDeg === null}
+        >
+          {fr.settings.forgetFov}
+        </button>
+        <p class="report-note">
+          {settings.cameraShortFovDeg === null
+            ? fr.settings.fovNone
+            : fr.settings.fovStored(settings.cameraShortFovDeg)}
+        </p>
       </fieldset>
 
       <!-- Attributions ODbL/OSM et tuiles : affichées dans l'app (décision n° 14

@@ -10,9 +10,22 @@ import {
   localToLatLon,
   normalizeBearing,
   normalizeLon,
+  signedDeltaDeg,
 } from './index';
 
 const CHAMONIX = { lat: 45.9237, lon: 6.8694 };
+
+describe('signedDeltaDeg', () => {
+  it('ramène tout écart dans (−180, 180]', () => {
+    expect(signedDeltaDeg(0)).toBe(0);
+    expect(signedDeltaDeg(20.5)).toBeCloseTo(20.5, 6);
+    // Cas terrain : un recalage manuel accumulé sur plus d'un tour.
+    expect(signedDeltaDeg(380.5)).toBeCloseTo(20.5, 6);
+    expect(signedDeltaDeg(-190)).toBeCloseTo(170, 6);
+    expect(signedDeltaDeg(180)).toBe(180);
+    expect(signedDeltaDeg(-180)).toBe(180);
+  });
+});
 
 describe('normalizeBearing', () => {
   it('ramène les caps dans [0, 360)', () => {
