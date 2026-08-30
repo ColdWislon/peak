@@ -320,3 +320,23 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       AVEC l'étalonnage (`cameraStreamAspect`) : un flux de forme différente rend la mesure
       caduque et l'app repart du défaut plutôt que d'appliquer un angle faux en silence.
       La légende distingue enfin le FOV appliqué de l'optique mesurée écartée.
+- [x] Rapport terrain n° 5 (capture + rapport JSON, Bauges depuis Cognin, flux 1600×1200) :
+      la géométrie est BONNE — mesurée sur l'image, la ligne rouge est à 3 px de la crête
+      (médiane sur 1280 colonnes, p90 4 px, soit 0,18°) avec le FOV par défaut (55°) et un
+      recalage quasi nul. Le défaut est ailleurs : la DÉTECTION d'horizon dans l'image. La
+      coupure à contraste maximal choisissait la limite montagne↔arbres plutôt que
+      ciel↔montagne — mesuré sur la photo, elle tombait ligne 506 au lieu de 203, soit 18°
+      trop bas — parce qu'une crête brumeuse est presque aussi claire que le ciel alors que
+      le premier plan (arbres, toits) est très sombre. D'où les deux calibrages du journal :
+      0 colonne concordante sur 240 au premier, puis 25 % avec un cap à −11° et une optique
+      en butée à 17,5° — soit un recalage qui aurait ruiné un alignement parfait (le
+      garde-fou l'a refusé, à raison). Correction : la détection descend chaque colonne
+      depuis le haut et s'arrête là où le pixel QUITTE le ciel (référence médiane lue en
+      haut de colonne, seuil relatif sur luminance ou bleu, confirmation sur 3 lignes,
+      affinage sur le plus fort gradient), avec repli sur l'ancienne coupure quand le haut
+      de colonne n'est pas crédible comme ciel (sombre ou texturé). Mesuré sur la photo du
+      rapport : ligne 213 au lieu de 506 (crête à 203), confiance médiane 0,48, 172 colonnes
+      sur 240 exploitables. Tests : cas synthétique à trois bandes (ciel clair, montagne
+      brumeuse, arbres sombres) et cas du repli. Au passage, le rapport liste désormais cap,
+      élévation et distance des sommets en vue — « 0 étiquette dans le champ » restait
+      indécidable avec 16 sommets visibles.

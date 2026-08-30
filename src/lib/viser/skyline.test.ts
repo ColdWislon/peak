@@ -51,6 +51,58 @@ describe('detectImageSkyline', () => {
     }
   });
 
+  it('s’arrête à la crête brumeuse, pas à la cime des arbres', () => {
+    // Rapport terrain n° 5 : montagne claire et brumeuse sur ciel bleu, premier
+    // plan d'arbres et de toits beaucoup plus sombre. La coupure à contraste
+    // maximal choisissait la cime des arbres (13° trop bas) et emmenait tout le
+    // recalage avec elle.
+    const w = 40;
+    const h = 90;
+    const crete = 24;
+    const arbres = 52;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        const bande = y < crete ? [135, 180, 235] : y < arbres ? [120, 140, 165] : [35, 45, 30];
+        rgba[o] = bande[0]!;
+        rgba[o + 1] = bande[1]!;
+        rgba[o + 2] = bande[2]!;
+        rgba[o + 3] = 255;
+      }
+    }
+    const detected = detectImageSkyline(rgba, w, h);
+    for (let x = 0; x < w; x++) {
+      expect(Math.abs(detected.rows[x]! - crete)).toBeLessThanOrEqual(1.5);
+      expect(detected.confidence[x]!).toBeGreaterThan(0.35); // exploitable par le matcher
+    }
+  });
+
+  it('se replie sur le contraste maximal quand le haut n’est pas du ciel', () => {
+    // Téléphone incliné vers le bas : la bande de référence est du terrain
+    // texturé — descendre depuis elle n'aurait aucun sens.
+    const w = 20;
+    const h = 40;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        // Haut : terrain bruité clair/sombre ; bas : terrain franchement sombre.
+        const haut = y < 18;
+        const bruit = (x * 7 + y * 13) % 90;
+        rgba[o] = haut ? 90 + bruit : 40;
+        rgba[o + 1] = haut ? 95 + bruit : 42;
+        rgba[o + 2] = haut ? 85 + bruit : 38;
+        rgba[o + 3] = 255;
+      }
+    }
+    const detected = detectImageSkyline(rgba, w, h);
+    for (let x = 0; x < w; x++) {
+      expect(detected.rows[x]!).toBeGreaterThanOrEqual(14);
+      expect(detected.rows[x]!).toBeLessThanOrEqual(22);
+    }
+  });
+
   it('rend une confiance basse sur une image uniforme', () => {
     const w = 30;
     const h = 20;

@@ -47,11 +47,30 @@ export interface DetectedSkyline {
 }
 
 /**
- * Détection sans apprentissage : le ciel est clair (lumineux et bleuté), le
- * terrain sombre. Pour chaque colonne, on choisit la coupure maximisant le
- * contraste moyenne(haut) − moyenne(bas) via des sommes préfixes ; la
- * confiance est ce contraste normalisé.
+ * Détection sans apprentissage. On descend chaque colonne depuis le haut et on
+ * s'arrête là où le pixel QUITTE le ciel (assombri ou dé-bleui par rapport à la
+ * référence lue en haut de colonne) : c'est ce que fait l'œil, et c'est le seul
+ * critère qui tienne quand la montagne est claire et brumeuse alors qu'un
+ * premier plan d'arbres et de toits est beaucoup plus sombre — cas du rapport
+ * terrain n° 5, où la coupure à contraste maximal se posait 13° trop bas, sur
+ * la cime des arbres, et emportait tout le recalage avec elle.
+ *
+ * Repli sur l'ancienne coupure à contraste maximal quand le haut de la colonne
+ * ne ressemble pas à du ciel (sombre ou texturé) : la référence serait alors du
+ * terrain, et descendre depuis elle n'aurait aucun sens.
  */
+
+/** Part de la hauteur servant de référence « ciel » en haut de colonne. */
+const SKY_REF_FRACTION = 0.06;
+/** Écart relatif (luminance ou bleu) à partir duquel on a quitté le ciel. */
+const SKY_DEVIATION = 0.18;
+/** Lignes de confirmation : un oiseau ou un liseré JPEG ne fait pas un horizon. */
+const CONFIRM_ROWS = 3;
+/** Luminance minimale d'une référence de ciel crédible. */
+const MIN_SKY_LUMA = 60;
+/** Écart max dans la bande de référence : au-delà, c'est texturé (du terrain). */
+const MAX_SKY_SPREAD = 30;
+
 export function detectImageSkyline(
   rgba: Uint8ClampedArray | Uint8Array,
   width: number,
@@ -59,8 +78,22 @@ export function detectImageSkyline(
 ): DetectedSkyline {
   const rows = new Float32Array(width);
   const confidence = new Float32Array(width);
+  const luma = new Float32Array(height);
+  const blueness = new Float32Array(height);
   const score = new Float32Array(height);
-  const prefix = new Float32Array(height + 1);
+  // Assez de lignes pour que du terrain texturé se trahisse par son écart-type,
+  // jamais plus d'un sixième de l'image (l'horizon peut être haut dans le cadre).
+  const refRows = Math.max(
+    4,
+    Math.min(Math.max(4, Math.floor(height / 6)), Math.round(height * SKY_REF_FRACTION)),
+  );
+  const band = new Float32Array(refRows);
+
+  const median = (values: Float32Array, count: number): number => {
+    band.set(values.subarray(0, count));
+    const slice = Array.from(band.subarray(0, count)).sort((a, b) => a - b);
+    return slice[Math.floor(count / 2)]!;
+  };
 
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
@@ -68,28 +101,104 @@ export function detectImageSkyline(
       const r = rgba[o]!;
       const g = rgba[o + 1]!;
       const b = rgba[o + 2]!;
-      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-      // « Cielité » : luminosité + dominante bleue.
-      score[y] = (luma + b) / 2;
+      luma[y] = 0.299 * r + 0.587 * g + 0.114 * b;
+      blueness[y] = b - r;
+      // « Cielité » : luminosité + dominante bleue (sert au repli et à la confiance).
+      score[y] = (luma[y]! + b) / 2;
     }
-    prefix[0] = 0;
-    for (let y = 0; y < height; y++) prefix[y + 1] = prefix[y]! + score[y]!;
 
-    let bestRow = 0;
-    let bestContrast = -Infinity;
-    for (let y = 2; y <= height - 2; y++) {
-      const top = prefix[y]! / y;
-      const bottom = (prefix[height]! - prefix[y]!) / (height - y);
-      const contrast = top - bottom; // ciel au-dessus, terrain en dessous
-      if (contrast > bestContrast) {
-        bestContrast = contrast;
-        bestRow = y;
+    const skyLuma = median(luma, refRows);
+    const skyBlue = median(blueness, refRows);
+    let spread = 0;
+    for (let y = 0; y < refRows; y++) {
+      spread = Math.max(spread, Math.abs(luma[y]! - skyLuma));
+    }
+    const skyLike = skyLuma >= MIN_SKY_LUMA && spread <= MAX_SKY_SPREAD;
+
+    let boundary = -1;
+    if (skyLike) {
+      // Seul l'assombrissement (ou la perte de bleu) compte : un nuage plus
+      // clair que le ciel n'est pas un horizon.
+      const leftSky = (y: number): boolean =>
+        (skyLuma - luma[y]!) / Math.max(30, skyLuma) > SKY_DEVIATION ||
+        (skyBlue - blueness[y]!) / Math.max(20, skyBlue) > SKY_DEVIATION;
+      for (let y = 1; y < height - 1; y++) {
+        if (!leftSky(y)) continue;
+        let confirmed = true;
+        for (let k = 1; k <= CONFIRM_ROWS && y + k < height; k++) {
+          if (!leftSky(y + k)) {
+            confirmed = false;
+            break;
+          }
+        }
+        if (confirmed) {
+          // Affinage : le seuil déclenche un peu SOUS le bord (halo de brume,
+          // réduction de l'image). Le vrai bord est la ligne de plus fort
+          // gradient dans la fenêtre voisine.
+          boundary = steepestEdge(score, y, height);
+          break;
+        }
       }
     }
-    rows[x] = bestRow;
-    confidence[x] = Math.max(0, Math.min(1, bestContrast / 96));
+
+    if (boundary < 0) boundary = maxContrastRow(score, height);
+    rows[x] = boundary;
+    confidence[x] = contrastAt(score, boundary, height);
   }
   return { rows, confidence, width, height };
+}
+
+/** Ligne de plus fort assombrissement dans ±3 lignes autour d'une transition. */
+function steepestEdge(score: Float32Array, row: number, height: number): number {
+  let best = row;
+  let bestDrop = -Infinity;
+  for (let y = Math.max(1, row - 3); y <= Math.min(height - 2, row + 1); y++) {
+    const drop = score[y - 1]! - score[y + 1]!;
+    if (drop > bestDrop) {
+      bestDrop = drop;
+      best = y;
+    }
+  }
+  return best;
+}
+
+/** Coupure maximisant moyenne(haut) − moyenne(bas) : repli hors ciel crédible. */
+function maxContrastRow(score: Float32Array, height: number): number {
+  let sum = 0;
+  const prefix = new Float32Array(height + 1);
+  for (let y = 0; y < height; y++) {
+    sum += score[y]!;
+    prefix[y + 1] = sum;
+  }
+  let bestRow = 0;
+  let bestContrast = -Infinity;
+  for (let y = 2; y <= height - 2; y++) {
+    const contrast = prefix[y]! / y - (prefix[height]! - prefix[y]!) / (height - y);
+    if (contrast > bestContrast) {
+      bestContrast = contrast;
+      bestRow = y;
+    }
+  }
+  return bestRow;
+}
+
+/** Confiance : contraste local (8 lignes de part et d'autre), normalisé. */
+function contrastAt(score: Float32Array, row: number, height: number): number {
+  const span = 8;
+  let above = 0;
+  let aboveN = 0;
+  for (let y = Math.max(0, row - span); y < row; y++) {
+    above += score[y]!;
+    aboveN++;
+  }
+  let below = 0;
+  let belowN = 0;
+  for (let y = row + 1; y < Math.min(height, row + 1 + span); y++) {
+    below += score[y]!;
+    belowN++;
+  }
+  if (aboveN === 0 || belowN === 0) return 0;
+  return Math.max(0, Math.min(1, (above / aboveN - below / belowN) / 96));
 }
 
 /**

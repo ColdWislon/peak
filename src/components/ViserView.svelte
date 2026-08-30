@@ -14,7 +14,7 @@
     type SnapshotAim,
     type SnapshotCalibration,
   } from '../lib/debug/snapshot';
-  import { normalizeBearing, signedDeltaDeg, type LatLon } from '../lib/geo';
+  import { normalizeBearing, radToDeg, signedDeltaDeg, type LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
   import { topPeaks, type Peak } from '../lib/peaks';
@@ -797,6 +797,15 @@
       statutSommets: peaksStatus,
       sommets: peaks.length,
       visibles: candidates.length,
+      // Cap et élévation des sommets en vue : sans ça, « 0 étiquette dans le
+      // champ » ne dit pas s'ils sont ailleurs sur le tour d'horizon ou si la
+      // projection les perd (rapport terrain n° 5).
+      visiblesDetail: candidates.slice(0, 20).map((c) => ({
+        nom: c.name,
+        cap: Math.round(c.azimuthDeg),
+        elev: Number(radToDeg(c.elevAngleRad).toFixed(1)),
+        km: Number((c.distanceM / 1000).toFixed(1)),
+      })),
       horizonCalcule: demSkyline !== null,
       oeil: Math.round(eyeElevation),
       dernierRecalage: lastCalibration,
