@@ -445,6 +445,7 @@
         fovAdopted: adoptFov,
         fovEstimateDeg: estimate ? estimate.fovDeg : null,
         fovAtBound: estimate ? estimate.fovAtBound : false,
+        shortFovDeg: null, // rempli ci-dessous si l'optique est adoptée
       };
 
       if (!match || !reliable) {
@@ -475,6 +476,7 @@
           // quoi un changement de flux rendrait l'étalonnage faux en silence.
           settings.cameraStreamAspect = Number((streamAspect() ?? 0).toFixed(3));
           saveSettings();
+          if (lastCalibration) lastCalibration.shortFovDeg = settings.cameraShortFovDeg;
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
         } else {
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;

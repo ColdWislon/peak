@@ -99,6 +99,13 @@ export interface SnapshotCalibration {
   fovAdopted: boolean;
   /** Optique mesurée par le matcher (° de vue), même écartée ; null sans résultat. */
   fovEstimateDeg: number | null;
+  /**
+   * FOV petit côté du capteur retenu quand l'optique a été adoptée (°). C'est
+   * LUI qu'il faut lire : le « FOV vue » du recalage vaut pour la géométrie de
+   * l'instant (une rotation d'écran change la découpe, donc ce chiffre), alors
+   * que le petit côté du capteur, lui, ne bouge pas.
+   */
+  shortFovDeg: number | null;
   /** Vrai si cette mesure butait sur une borne de recherche (valeur non mesurée). */
   fovAtBound: boolean;
 }
@@ -197,17 +204,21 @@ function calibrationLine(calibration: SnapshotCalibration | null): string {
   if (calibration.maeDeg === null || calibration.inlierRatio === null) {
     return 'dernier recalage : refusé, horizon non détecté dans l’image';
   }
-  const optique = calibration.fovAdopted
-    ? 'optique adoptée'
-    : calibration.fovEstimateDeg === null
+  const tete =
+    `dernier recalage : ${calibration.applied ? 'appliqué' : 'refusé'}` +
+    ` · MAE ${num(calibration.maeDeg, 2)}° · ${Math.round(calibration.inlierRatio * 100)} %` +
+    ' concordantes · ';
+  // Optique adoptée : on annonce le capteur (invariant), pas le FOV de vue de
+  // l'instant — l'écran a pu tourner depuis, et les deux chiffres divergent.
+  if (calibration.fovAdopted) {
+    return `${tete}optique adoptée : capteur ${num(calibration.shortFovDeg ?? 0, 1)}°`;
+  }
+  const optique =
+    calibration.fovEstimateDeg === null
       ? 'optique inchangée'
       : `mesure ${num(calibration.fovEstimateDeg, 1)}° écartée` +
         `${calibration.fovAtBound ? ', en butée' : ''}`;
-  return (
-    `dernier recalage : ${calibration.applied ? 'appliqué' : 'refusé'}` +
-    ` · MAE ${num(calibration.maeDeg, 2)}° · ${Math.round(calibration.inlierRatio * 100)} %` +
-    ` concordantes · FOV vue ${num(calibration.fovDeg ?? 0, 1)}° (${optique})`
-  );
+  return `${tete}FOV vue ${num(calibration.fovDeg ?? 0, 1)}° (${optique})`;
 }
 
 /** Issue de la remise du fichier à l'utilisateur. */

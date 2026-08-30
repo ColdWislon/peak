@@ -44,6 +44,7 @@ const AIM: SnapshotAim = {
     fovAdopted: true,
     fovEstimateDeg: 42.35,
     fovAtBound: false,
+    shortFovDeg: 55,
   },
   sensors: true,
   horizon: true,
@@ -85,8 +86,8 @@ describe('capture de débogage', () => {
     expect(lines[2]).toContain('zoom 2,4×');
     expect(lines[2]).toContain('flux 1280×720');
     expect(lines[3]).toBe(
-      'dernier recalage : appliqué · MAE 0,42° · 78 % concordantes · FOV vue 42,4° ' +
-        '(optique adoptée)',
+      'dernier recalage : appliqué · MAE 0,42° · 78 % concordantes · ' +
+        'optique adoptée : capteur 55,0°',
     );
     expect(lines[4]).toBe(
       'capteurs actifs · horizon tracé · sommets : 128 chargés, 12 en vue, 7 dans le champ',
@@ -112,6 +113,7 @@ describe('capture de débogage', () => {
         fovAdopted: false,
         fovEstimateDeg: null,
         fovAtBound: false,
+        shortFovDeg: null,
       },
     });
     expect(nonDetecte[3]).toContain('refusé, horizon non détecté');

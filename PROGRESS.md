@@ -364,3 +364,15 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       en paysage était donc jeté en portrait (`etalonnageUtilisable: false`, retour au
       défaut 55°). `frameShape` (grand côté / petit côté, testé) normalise la forme : la
       rotation n'invalide plus rien, un vrai changement de format (16:9 vs 4:3) toujours si.
+- [x] Rapport terrain n° 8 : ça marche. Sept sommets nommés posés sur la crête des Bauges
+      (Croix du Nivolet, Mont Peney, Le Rebollion, L'Orionde, Sommet des Monts, Grand Roc),
+      84 sommets en ligne de vue au lieu de 16, recalage appliqué avec MAE 0,19 degre et
+      100 % de colonnes concordantes, optique adoptee (capteur 51,5 degres). Les correctifs
+      des rapports 5 et 6 attendaient dans deux commits que la CI avait recales : le
+      format:check echouait sur une ligne de PROGRESS.md que prettier reecrivait, et le job
+      de deploiement depend du precedent — rien n'etait donc parti en ligne. A retenir :
+      verifier la conclusion de la CI avant d'annoncer un deploiement. Derniere clarte de
+      legende : quand l'optique est adoptee, la capture annonce desormais le FOV du PETIT
+      COTE du capteur (invariant) plutot que le FOV de vue de l'instant — l'ecran a pu
+      tourner entre le recalage et la capture, et les deux chiffres divergent alors sans
+      que rien ne soit faux.
