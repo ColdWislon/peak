@@ -12,7 +12,7 @@
     type PlacedLabel,
   } from '../lib/labels';
   import { PanoramaEngine, type PanoramaContext } from '../lib/panorama/engine';
-  import { topPeaks, type Peak } from '../lib/peaks';
+  import { topPeaksFrom, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
   import { settings } from '../lib/settings/store.svelte';
   import type {
@@ -76,7 +76,12 @@
     if (!context || !worker) return;
     peaksStatus = 'searching';
     try {
-      peaks = topPeaks(await peaksAround(context.viewpoint, PEAKS_RADIUS_M), PEAKS_LIMIT);
+      peaks = topPeaksFrom(
+        await peaksAround(context.viewpoint, PEAKS_RADIUS_M),
+        context.viewpoint,
+        context.eyeElevation,
+        PEAKS_LIMIT,
+      );
     } catch {
       // Overpass indisponible : le panorama reste utilisable sans étiquettes.
       peaksStatus = 'error';

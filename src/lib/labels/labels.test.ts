@@ -127,8 +127,11 @@ describe('toCandidates', () => {
     expect(candidates[0]!.name).toBe('Mont Blanc');
     expect(candidates[0]!.azimuthDeg).toBeCloseTo(0, 6);
     expect(candidates[0]!.elevAngleRad).toBeGreaterThan(0);
-    // Score = importance : altitude + bonus de proéminence.
-    expect(candidates[0]!.score).toBeCloseTo(4808 + 4696 * 2, 6);
+    // Score = importance APPARENTE : hauteur vue + moitié du relief propre vu.
+    expect(candidates[0]!.score).toBeCloseTo(
+      candidates[0]!.elevAngleRad + 0.5 * Math.atan(4696 / 20_000),
+      6,
+    );
   });
 
   it('respecte la préférence de nom local', () => {

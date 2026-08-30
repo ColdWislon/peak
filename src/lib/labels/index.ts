@@ -1,5 +1,5 @@
 import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
-import { peakDisplayName, peakImportance, type NamePreference, type Peak } from '../peaks';
+import { apparentImportance, peakDisplayName, type NamePreference, type Peak } from '../peaks';
 import type { Units } from '../settings';
 import type { PeakSight } from '../visibility/protocol';
 
@@ -63,7 +63,14 @@ export function toCandidates(
       distanceM: sight.distanceM,
       azimuthDeg: normalizeBearing(radToDeg(Math.atan2(sight.east, sight.north))),
       elevAngleRad: apparentElevationAngle(sight.distanceM, sight.elevation - eyeElevation),
-      score: peakImportance({ elevation: sight.elevation, prominence: peak.prominence }),
+      // Priorité de placement : la même importance apparente qui a servi à
+      // choisir les sommets — un sommet proche qui domine la vue passe devant
+      // un géant lointain quand leurs étiquettes se chevauchent.
+      score: apparentImportance(
+        { elevation: sight.elevation, prominence: peak.prominence },
+        sight.distanceM,
+        eyeElevation,
+      ),
     });
   }
 

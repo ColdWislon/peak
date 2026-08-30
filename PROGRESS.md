@@ -340,3 +340,18 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       brumeuse, arbres sombres) et cas du repli. Au passage, le rapport liste désormais cap,
       élévation et distance des sommets en vue — « 0 étiquette dans le champ » restait
       indécidable avec 16 sommets visibles.
+- [x] Rapport terrain n° 6 : « 300 chargés, 16 en vue, 0 dans le champ » face à une crête
+      parfaitement calée. Cause : `topPeaks` retenait les 300 sommets les plus importants
+      DANS L'ABSOLU (altitude + 2 × proéminence) dans un rayon de 75 km. Depuis Chambéry,
+      ces 300-là sont tous des 2500-3800 de Belledonne, de Vanoise et du Beaufortain —
+      masqués par la muraille des Bauges — et la crête sous les yeux de l'utilisateur, un
+      1550 à 7 km, n'entrait même pas dans la liste : rien à étiqueter, quoi qu'il vise.
+      Correction : `apparentImportance` (hauteur apparente + moitié du relief propre vu à
+      cette distance, courbure et réfraction comprises) et `topPeaksFrom(peaks, viewpoint,
+    eyeElevation, limit)` — le mode Viser et le panorama choisissent désormais ce qui SE
+      VOIT depuis le point de vue, et la priorité de placement des étiquettes suit le même
+      critère (un sommet proche qui domine la vue passe devant un géant lointain quand les
+      boîtes se chevauchent). La carte garde le tri absolu : une vue de dessus n'a pas de
+      point de vue. Test de non-régression sur le cas réel : 400 sommets lointains de 2500
+      à 3500 m plus la Croix du Nivolet — l'ancien tri l'évinçait des 300, le nouveau la
+      met en tête.

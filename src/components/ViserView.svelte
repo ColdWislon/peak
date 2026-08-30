@@ -17,7 +17,7 @@
   import { normalizeBearing, radToDeg, signedDeltaDeg, type LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
-  import { topPeaks, type Peak } from '../lib/peaks';
+  import { topPeaksFrom, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
   import { tileBlockAround } from '../lib/terrain/blocks';
@@ -255,7 +255,12 @@
       ]);
       if (worker !== mine) return; // supplanté pendant le chargement
       eyeElevation = (inner.contains(plain) ? inner.elevationAt(plain) : 0) + EYE_HEIGHT_M;
-      peaks = topPeaks(await peaksAround(plain, PEAKS_RADIUS_M), PEAKS_LIMIT);
+      peaks = topPeaksFrom(
+        await peaksAround(plain, PEAKS_RADIUS_M),
+        plain,
+        eyeElevation,
+        PEAKS_LIMIT,
+      );
       if (worker !== mine) return;
       logDebug('viser:donnees', {
         pointDeVue: plain,

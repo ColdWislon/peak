@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { haversineDistance } from '../geo';
 import {
+  apparentImportance,
   buildPeaksQuery,
   parseElevation,
   parsePeaks,
   peakDisplayName,
   peakImportance,
   topPeaks,
+  topPeaksFrom,
   type Peak,
 } from './index';
 
@@ -155,5 +158,66 @@ describe('peakImportance et topPeaks', () => {
     const before = peaks.map((p) => p.id);
     topPeaks(peaks, 1);
     expect(peaks.map((p) => p.id)).toEqual(before);
+  });
+});
+
+describe('importance apparente depuis un point de vue', () => {
+  /** Cas du rapport terrain n° 6 : Cognin, œil à 300 m, face aux Bauges. */
+  const VUE = { lat: 45.58806, lon: 5.87642 };
+  const OEIL = 300;
+  /** La crête sous les yeux : modeste, mais elle occupe le champ. */
+  const nivolet = makePeak({
+    id: 1,
+    name: 'Croix du Nivolet',
+    lat: 45.6045,
+    lon: 5.9587,
+    elevation: 1547,
+    prominence: 250,
+  });
+  /** Un géant de Vanoise à ~60 km : plus haut, mais un triangle à l'horizon. */
+  const vanoise = makePeak({
+    id: 2,
+    name: 'Grande Casse',
+    lat: 45.4,
+    lon: 6.65,
+    elevation: 3855,
+    prominence: 1500,
+  });
+
+  it('classe la crête proche devant le géant lointain', () => {
+    const proche = apparentImportance(nivolet, haversineDistance(VUE, nivolet), OEIL);
+    const lointain = apparentImportance(vanoise, haversineDistance(VUE, vanoise), OEIL);
+    expect(proche).toBeGreaterThan(lointain);
+    expect(topPeaksFrom([vanoise, nivolet], VUE, OEIL, 2)[0]!.name).toBe('Croix du Nivolet');
+  });
+
+  it('garde la crête du champ que le tri par altitude absolue évinçait', () => {
+    // 400 sommets de 2500 à 3500 m entre 40 et 70 km : ce que renvoie vraiment
+    // Overpass autour de Chambéry (Belledonne, Vanoise, Beaufortain…).
+    const lointains = Array.from({ length: 400 }, (_, i) =>
+      makePeak({
+        id: 100 + i,
+        name: `Lointain ${i}`,
+        lat: 45.2 + (i % 20) * 0.02,
+        lon: 6.4 + Math.floor(i / 20) * 0.02,
+        elevation: 2500 + (i % 100) * 10,
+        prominence: 100,
+      }),
+    );
+    const tous = [...lointains, nivolet];
+
+    // Ancien tri (altitude + proéminence) : la crête n'entre même pas dans les 300.
+    expect(topPeaks(tous, 300).some((p) => p.id === nivolet.id)).toBe(false);
+    // Tri apparent : elle arrive en tête.
+    expect(topPeaksFrom(tous, VUE, OEIL, 300)[0]!.id).toBe(nivolet.id);
+  });
+
+  it('range les sommets sans altitude en dernier et ne mute pas la source', () => {
+    const inconnu = makePeak({ id: 3, name: 'Sans altitude' });
+    const ordre = topPeaksFrom([inconnu, vanoise, nivolet], VUE, OEIL, 3);
+    expect(ordre[2]!.id).toBe(inconnu.id);
+    const source = [nivolet, vanoise];
+    topPeaksFrom(source, VUE, OEIL, 1);
+    expect(source.map((p) => p.id)).toEqual([nivolet.id, vanoise.id]);
   });
 });

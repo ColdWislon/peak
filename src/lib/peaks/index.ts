@@ -1,4 +1,4 @@
-import type { LatLon } from '../geo';
+import { apparentElevationAngle, haversineDistance, type LatLon } from '../geo';
 
 /** Un sommet issu d'OpenStreetMap (nœud `natural=peak` nommé). */
 export interface Peak {
@@ -101,4 +101,46 @@ export function parsePeaks(json: unknown): Peak[] {
  */
 export function topPeaks(peaks: Peak[], limit: number): Peak[] {
   return [...peaks].sort((a, b) => peakImportance(b) - peakImportance(a)).slice(0, limit);
+}
+
+/**
+ * Importance APPARENTE depuis un point de vue : à l'écran, ce qui compte n'est
+ * pas l'altitude absolue mais l'angle sous lequel le sommet se détache.
+ *
+ * Sans ça (rapport terrain n° 6), depuis Chambéry les 300 sommets retenus dans
+ * un rayon de 75 km sont tous des 2500-3800 de Vanoise et de Belledonne —
+ * masqués par la muraille des Bauges — et la crête que l'utilisateur a sous les
+ * yeux, un modeste 1550 à 7 km, ne fait même pas partie du lot : aucune
+ * étiquette, alors que l'horizon est parfaitement calé.
+ */
+export function apparentImportance(
+  peak: Pick<Peak, 'elevation' | 'prominence'>,
+  distanceM: number,
+  eyeElevation: number,
+): number {
+  if (peak.elevation === null || peak.elevation === undefined) return -Infinity;
+  const distance = Math.max(1, distanceM);
+  // Hauteur apparente (courbure et réfraction comprises).
+  const angle = apparentElevationAngle(distance, peak.elevation - eyeElevation);
+  // Relief propre vu à cette distance : départage deux sommets de même hauteur
+  // apparente — une antécime pèse moins qu'un sommet isolé.
+  const relief = Math.atan((peak.prominence ?? 0) / distance);
+  return angle + 0.5 * relief;
+}
+
+/** Les `limit` sommets les plus marquants VUS DE `viewpoint` (œil à `eyeElevation`). */
+export function topPeaksFrom(
+  peaks: Peak[],
+  viewpoint: LatLon,
+  eyeElevation: number,
+  limit: number,
+): Peak[] {
+  return [...peaks]
+    .map((peak) => ({
+      peak,
+      score: apparentImportance(peak, haversineDistance(viewpoint, peak), eyeElevation),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.peak);
 }
