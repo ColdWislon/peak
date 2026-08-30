@@ -81,8 +81,17 @@ export function snapshotFileName(date: Date): string {
   return `cimes-vue-${stamp}.jpg`;
 }
 
+/** Statut du chargement des sommets, tel que l'affiche le mode Viser. */
+export type PeaksStatus = 'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok';
+
 /** État de visée décrit par la capture (gravé dans l'image et journalisé). */
 export interface SnapshotAim {
+  /** Horodatage de la capture. */
+  time: Date;
+  /** Point de vue utilisé pour tous les calculs (pas forcément le GPS). */
+  viewpoint: { lat: number; lon: number };
+  /** Altitude de l'œil (m) tirée du relief au point de vue. */
+  eyeElevationM: number;
   headingDeg: number;
   pitchDeg: number;
   headingOffsetDeg: number;
@@ -98,8 +107,22 @@ export interface SnapshotAim {
   sensors: boolean;
   /** Vrai quand l'horizon du relief est tracé sur l'image. */
   horizon: boolean;
+  peaksStatus: PeaksStatus;
+  /** Sommets chargés (Overpass), visibles (ligne de vue), et posés dans le champ. */
+  peaksLoaded: number;
+  peaksVisible: number;
   labels: number;
 }
+
+/** Motif ajouté à la ligne « sommets » quand le compte n'est pas nominal. */
+const PEAKS_STATUS_FR: Record<PeaksStatus, string | null> = {
+  idle: 'non demandés',
+  searching: 'chargement en cours',
+  error: 'Overpass indisponible',
+  empty: 'aucun sommet nommé dans le rayon',
+  noneVisible: 'tous masqués par le relief',
+  ok: null,
+};
 
 function num(value: number, digits = 0): string {
   return value.toFixed(digits).replace('.', ',');
@@ -111,15 +134,24 @@ function num(value: number, digits = 0): string {
  */
 export function snapshotCaption(aim: SnapshotAim): string[] {
   const sign = (value: number): string => `${value >= 0 ? '+' : '−'}${num(Math.abs(value), 1)}°`;
+  const p = (n: number): string => String(n).padStart(2, '0');
+  const stamp = `${p(aim.time.getDate())}/${p(aim.time.getMonth() + 1)} ${p(
+    aim.time.getHours(),
+  )}:${p(aim.time.getMinutes())}`;
   return [
-    `Cimes · cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
+    `Cimes · ${stamp} · point de vue ${aim.viewpoint.lat.toFixed(4)}, ` +
+      `${aim.viewpoint.lon.toFixed(4)} · œil ${Math.round(aim.eyeElevationM)} m`,
+    `cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
       ` · recalage ${sign(aim.headingOffsetDeg)} / ${sign(aim.pitchOffsetDeg)}`,
     `FOV vue ${num(aim.screenFovDeg, 1)}° · capteur ${num(aim.shortFovDeg, 1)}°` +
       ` ${aim.fovCalibrated ? '(étalonné)' : '(défaut)'} · zoom ${num(aim.zoom, 1)}×`,
     `${aim.sensors ? 'capteurs actifs' : 'sans capteurs'} · ` +
-      `${aim.horizon ? 'horizon tracé' : 'horizon non calculé'} · ${aim.labels} étiquette${
-        aim.labels > 1 ? 's' : ''
-      }`,
+      `${aim.horizon ? 'horizon tracé' : 'horizon non calculé'} · ` +
+      // Trois nombres distincts : sans eux, « 0 étiquette » ne dit pas si les
+      // sommets manquent, sont masqués par le relief, ou sont hors du champ.
+      `sommets : ${aim.peaksLoaded} chargés, ${aim.peaksVisible} en vue, ` +
+      `${aim.labels} dans le champ` +
+      (PEAKS_STATUS_FR[aim.peaksStatus] ? ` (${PEAKS_STATUS_FR[aim.peaksStatus]})` : ''),
   ];
 }
 
@@ -188,6 +220,23 @@ export function browserDelivery(): DeliveryEnv {
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     },
   };
+}
+
+/** Gabarit du bandeau de légende, ajouté SOUS la photo (rien n'est masqué). */
+export interface CaptionLayout {
+  font: number;
+  lineHeight: number;
+  padding: number;
+  /** Hauteur totale du bandeau (px). */
+  height: number;
+}
+
+/** Typographie du bandeau : lisible sur petite image, sobre sur grande. */
+export function captionLayout(width: number, lineCount: number): CaptionLayout {
+  const font = Math.max(12, Math.min(26, Math.round(width / 48)));
+  const padding = Math.round(font * 0.6);
+  const lineHeight = Math.round(font * 1.45);
+  return { font, lineHeight, padding, height: lineCount * lineHeight + padding * 2 };
 }
 
 /** Encode un canvas en blob (JPEG par défaut) ; rejette si l'encodage échoue. */

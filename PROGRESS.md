@@ -266,3 +266,17 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       L'IMAGE PRODUITE : dimensions = celles de la vue, JPEG non trivial, ligne rouge
       gravée à 4,5 px près de l'horizon vidéo (la mise à l'échelle vue → image est donc
       juste) et bandeau de légende présent.
+- [x] Rapport terrain n° 2 (première capture réelle, Chartreuse depuis Chambéry) : la ligne
+      rouge épouse la crête à 2,5 px près (médiane, ≈ 0,16° ; p90 3,5 px) sur toute la
+      largeur — le recalage automatique fait son travail (+18,1° de cap, la boussole était
+      donc à 18° du nord vrai). Deux défauts trouvés DANS le bandeau de la capture :
+      (1) « capteur 40,0° (étalonné) » alors que 40° est exactement le plancher de
+      recherche — l'optimum butait sur la borne et cette valeur bornée (non mesurée) était
+      persistée ; les flux 16:9 (fréquents sur iPhone) ont un petit côté sous ce plancher.
+      Correction : plancher à 28°, `SkylineMatch.fovAtBound` signale un optimum collé à une
+      borne, et l'étalonnage n'est plus persisté dans ce cas (testé). (2) « 0 étiquette »
+      indécidable — sommets non chargés, masqués par le relief, ou simplement hors du
+      champ ? La légende donne désormais les trois nombres (chargés, en vue, dans le champ)
+      et le motif du statut, plus l'horodatage, le point de vue et l'altitude de l'œil. Au passage : la capture est rendue à la résolution de la découpe source (et
+      non aux points CSS de la vue — moitié du détail perdu sur écran dense) et la légende
+      s'ajoute SOUS la photo, qui n'est plus masquée d'un pixel.

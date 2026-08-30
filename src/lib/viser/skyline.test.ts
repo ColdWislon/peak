@@ -153,12 +153,34 @@ describe('matchSkyline', () => {
     expect(match!.maeDeg).toBeLessThan(0.8);
   });
 
+  it('signale un FOV coincé sur une borne (valeur bornée, pas mesurée)', () => {
+    // Optique large (68°) mais recherche plafonnée à 60° : l'optimum se colle
+    // à la borne. Cas du rapport terrain n° 2 (flux 16:9 sous le plancher) :
+    // la valeur ne doit pas être persistée comme étalonnage.
+    const detected = renderDetected(120, 90, 68);
+    const bride = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+      fovSearch: { minDeg: 40, maxDeg: 60 },
+    });
+    expect(bride!.fovDeg).toBeGreaterThanOrEqual(59);
+    expect(bride!.fovAtBound).toBe(true);
+
+    // Plage assez large : l'optimum tombe à l'intérieur, la mesure vaut.
+    const large = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+      fovSearch: { minDeg: 40, maxDeg: 90 },
+    });
+    expect(large!.fovAtBound).toBe(false);
+    expect(Math.abs(large!.fovDeg - 68)).toBeLessThanOrEqual(2);
+  });
+
   it('garde le FOV courant sans estimation demandée', () => {
     const detected = renderDetected(120, 90, 55);
     const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 4, fovDeg: 55 }, dem, {
       demStepDeg: DEM_STEP,
     });
     expect(match!.fovDeg).toBe(55);
+    expect(match!.fovAtBound).toBe(false);
   });
 
   it('sur un horizon plat : corrige l’assiette sans inventer de cap', () => {

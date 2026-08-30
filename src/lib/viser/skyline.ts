@@ -135,6 +135,13 @@ export interface SkylineMatch {
   pitchOffsetDeg: number;
   /** FOV vertical retenu (°) — égal à `view.fovDeg` sans estimation. */
   fovDeg: number;
+  /**
+   * Vrai quand le FOV retenu bute sur une borne de recherche : l'optimum est
+   * hors plage, donc la valeur n'est PAS mesurée — juste bornée. Elle ne doit
+   * pas être persistée comme étalonnage (faux avec un flux 16:9, dont le petit
+   * côté descend sous les bornes pensées pour un cadre 4:3).
+   */
+  fovAtBound: boolean;
   /** Erreur absolue moyenne (°) des colonnes concordantes au meilleur alignement. */
   maeDeg: number;
   /** Colonnes exploitées (confiance suffisante). */
@@ -269,6 +276,7 @@ export function matchSkyline(
         headingOffsetDeg: bestHOff,
         pitchOffsetDeg: bestPOff,
         fovDeg,
+        fovAtBound: false,
         maeDeg: inliers > 0 ? inlierSum / inliers : Infinity,
         usedColumns: samples.length,
         inlierColumns: inliers,
@@ -306,7 +314,10 @@ export function matchSkyline(
   ) {
     consider(f);
   }
-  return bestOverall!.match;
+  const best = bestOverall!.match;
+  // Optimum collé à une borne : la vraie valeur est probablement au-delà.
+  best.fovAtBound = best.fovDeg <= minDeg + fine / 2 || best.fovDeg >= maxDeg - fine / 2;
+  return best;
 }
 
 /** MAE maximale (°) des colonnes concordantes pour appliquer un recalage.

@@ -23,6 +23,9 @@ function fakeSnapshot(): DebugSnapshot {
 }
 
 const AIM: SnapshotAim = {
+  time: new Date(2026, 7, 30, 11, 18, 5),
+  viewpoint: { lat: 45.58931, lon: 5.90127 },
+  eyeElevationM: 412.4,
   headingDeg: 95.4,
   pitchDeg: -3.42,
   headingOffsetDeg: 6,
@@ -33,6 +36,9 @@ const AIM: SnapshotAim = {
   zoom: 2.4,
   sensors: true,
   horizon: true,
+  peaksStatus: 'ok',
+  peaksLoaded: 128,
+  peaksVisible: 12,
   labels: 7,
 };
 
@@ -54,16 +60,21 @@ describe('capture de débogage', () => {
     expect(name).toBe('cimes-vue-20260830-090205.jpg');
   });
 
-  it('grave une légende lisible seule (cap, recalages, FOV, zoom, état)', () => {
+  it('grave une légende lisible seule (lieu, cap, recalages, FOV, sommets)', () => {
     const lines = snapshotCaption(AIM);
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain('cap 95°');
-    expect(lines[0]).toContain('assiette −3,4°');
-    expect(lines[0]).toContain('recalage +6,0° / −1,2°');
-    expect(lines[1]).toContain('FOV vue 42,4°');
-    expect(lines[1]).toContain('(étalonné)');
-    expect(lines[1]).toContain('zoom 2,4×');
-    expect(lines[2]).toBe('capteurs actifs · horizon tracé · 7 étiquettes');
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toContain('30/08 11:18');
+    expect(lines[0]).toContain('point de vue 45.5893, 5.9013');
+    expect(lines[0]).toContain('œil 412 m');
+    expect(lines[1]).toContain('cap 95°');
+    expect(lines[1]).toContain('assiette −3,4°');
+    expect(lines[1]).toContain('recalage +6,0° / −1,2°');
+    expect(lines[2]).toContain('FOV vue 42,4°');
+    expect(lines[2]).toContain('(étalonné)');
+    expect(lines[2]).toContain('zoom 2,4×');
+    expect(lines[3]).toBe(
+      'capteurs actifs · horizon tracé · sommets : 128 chargés, 12 en vue, 7 dans le champ',
+    );
   });
 
   it('dit l’état dégradé : sans capteurs, sans horizon, FOV par défaut', () => {
@@ -72,10 +83,34 @@ describe('capture de débogage', () => {
       fovCalibrated: false,
       sensors: false,
       horizon: false,
-      labels: 1,
+      labels: 0,
     });
-    expect(lines[1]).toContain('(défaut)');
-    expect(lines[2]).toBe('sans capteurs · horizon non calculé · 1 étiquette');
+    expect(lines[2]).toContain('(défaut)');
+    expect(lines[3]).toContain('sans capteurs · horizon non calculé');
+    expect(lines[3]).toContain('0 dans le champ');
+  });
+
+  it('distingue « pas de sommets » de « aucun dans le champ »', () => {
+    // Le cas du rapport terrain n° 2 : horizon tracé mais zéro étiquette —
+    // la légende doit dire LAQUELLE des trois étapes a produit le zéro.
+    const masques = snapshotCaption({
+      ...AIM,
+      peaksStatus: 'noneVisible',
+      peaksVisible: 0,
+      labels: 0,
+    });
+    expect(masques[3]).toContain('128 chargés, 0 en vue, 0 dans le champ (tous masqués');
+    const overpass = snapshotCaption({
+      ...AIM,
+      peaksStatus: 'error',
+      peaksLoaded: 0,
+      peaksVisible: 0,
+      labels: 0,
+    });
+    expect(overpass[3]).toContain('0 chargés, 0 en vue, 0 dans le champ (Overpass indisponible)');
+    // Statut nominal : aucun motif ajouté, les trois nombres suffisent.
+    const horsChamp = snapshotCaption({ ...AIM, labels: 0 });
+    expect(horsChamp[3]).toMatch(/12 en vue, 0 dans le champ$/);
   });
 
   it('n’expose une source qu’entre l’enregistrement et sa désinscription', async () => {

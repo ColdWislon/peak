@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { captionLayout } from '../lib/debug/snapshot';
 import { decodePng } from './png';
 import {
   referenceSkyline,
@@ -199,21 +200,28 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       const rect = el.getBoundingClientRect();
       return { w: Math.round(rect.width), h: Math.round(rect.height), top: rect.top };
     });
-    expect(shot.width).toBe(viser.w);
-    expect(shot.height).toBe(viser.h);
+    // L'image est rendue à la résolution de la DÉCOUPE SOURCE (plus fine que
+    // les points CSS de la vue), légende ajoutée SOUS la photo (rien de masqué).
+    const band = captionLayout(shot.width, 4).height;
+    const photoH = shot.height - band;
+    const scale = shot.width / viser.w;
+    expect(scale).toBeGreaterThan(1.2);
+    expect(photoH / shot.width).toBeCloseTo(viser.h / viser.w, 2);
 
     // La ligne rouge gravée épouse l'horizon de l'image : la mise à l'échelle
     // repère-vue → repère-image est juste (c'est tout l'enjeu de la capture).
     const anchor = await labelAnchor();
-    const gaps = alignmentGaps(shot, [anchor.x]);
-    expect(gaps.usable).toBeGreaterThan(100);
-    expect(gaps.median).toBeLessThanOrEqual(4.5);
+    const gaps = alignmentGaps(shot, [anchor.x * scale]);
+    expect(gaps.usable).toBeGreaterThan(150);
+    // Seuil du scénario 1 (4,5 px de vue) converti en pixels d'image.
+    expect(gaps.median).toBeLessThanOrEqual(4.5 * scale);
 
-    // Bandeau de légende gravé en bas (fond sombre sur toute la largeur).
-    const band = shot.height - 20;
+    // Bandeau de légende gravé sous la photo (fond sombre sur toute la largeur) :
+    // dernière ligne, sous la dernière ligne de texte.
+    const bandRow = shot.height - 3;
     let dark = 0;
     for (let x = 0; x < shot.width; x++) {
-      const o = (band * shot.width + x) * 4;
+      const o = (bandRow * shot.width + x) * 4;
       if (shot.rgba[o]! < 130 && shot.rgba[o + 1]! < 130 && shot.rgba[o + 2]! < 130) dark++;
     }
     expect(dark).toBeGreaterThan(shot.width * 0.9);

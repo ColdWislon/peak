@@ -3,11 +3,13 @@
   import { logDebug, registerDebugProvider } from '../lib/debug/report';
   import {
     canvasToBlob,
+    captionLayout,
     deliverSnapshot,
     fitSnapshot,
     registerSnapshotSource,
     snapshotCaption,
     snapshotFileName,
+    type CaptionLayout,
     type DebugSnapshot,
     type SnapshotAim,
   } from '../lib/debug/snapshot';
@@ -44,8 +46,14 @@
   const EYE_HEIGHT_M = 1.7;
   /** FOV du petit côté du capteur par défaut, remplacé par la mesure au recalage. */
   const DEFAULT_SHORT_FOV_DEG = 55;
-  /** Plage plausible du FOV petit côté (smartphones), bornes de l'estimation. */
-  const SHORT_FOV_MIN_DEG = 40;
+  /**
+   * Plage plausible du FOV petit côté (smartphones), bornes de l'estimation.
+   * Le plancher descend à 28° : un flux 16:9 (fréquent sur iPhone) est une
+   * découpe du capteur dont le petit côté voit ~40° — l'ancien plancher de 40°
+   * bloquait l'estimation SUR la borne (rapport terrain n° 2 : « capteur 40,0°
+   * (étalonné) » persisté alors que la valeur n'était que bornée).
+   */
+  const SHORT_FOV_MIN_DEG = 28;
   const SHORT_FOV_MAX_DEG = 80;
   const PEAKS_RADIUS_M = 75_000;
   const PEAKS_LIMIT = 300;
@@ -357,6 +365,7 @@
               cap: Number(match.headingOffsetDeg.toFixed(2)),
               assiette: Number(match.pitchOffsetDeg.toFixed(2)),
               fov: Number(match.fovDeg.toFixed(1)),
+              fovEnButee: match.fovAtBound,
               mae: Number.isFinite(match.maeDeg) ? Number(match.maeDeg.toFixed(3)) : null,
               colonnes: match.usedColumns,
               concordantes: match.inlierColumns,
@@ -372,9 +381,11 @@
         pitchOffset += match.pitchOffsetDeg;
         const deg = Math.round(match.headingOffsetDeg);
         // La surface de coût est plate en FOV : on ne persiste l'optique
-        // mesurée que sur un alignement excellent. On stocke le FOV petit côté
-        // du capteur (invariant en rotation), reconverti depuis la vue.
-        if (match.maeDeg <= 0.8) {
+        // mesurée que sur un alignement excellent, et jamais quand l'optimum
+        // bute sur une borne de recherche (valeur bornée, pas mesurée). On
+        // stocke le FOV petit côté du capteur (invariant en rotation),
+        // reconverti depuis la vue.
+        if (match.maeDeg <= 0.8 && !match.fovAtBound) {
           const measured = shortSideFovDeg(
             match.fovDeg,
             video.videoWidth,
@@ -383,7 +394,7 @@
             viewH,
             zoom,
           );
-          settings.cameraShortFovDeg = Math.min(100, Math.max(30, Math.round(measured * 2) / 2));
+          settings.cameraShortFovDeg = Math.min(100, Math.max(25, Math.round(measured * 2) / 2));
           saveSettings();
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
         } else {
@@ -453,25 +464,31 @@
     ctx.restore();
   }
 
-  /** Grave l'état de visée en bas de l'image : la capture se lit seule. */
+  /**
+   * Grave l'état de visée dans un bandeau ajouté SOUS la photo : la capture se
+   * lit seule sans masquer un seul pixel de ce que voyait la caméra.
+   */
   function drawCaption(
     ctx: CanvasRenderingContext2D,
     lines: string[],
-    size: { width: number; height: number },
+    width: number,
+    top: number,
+    band: CaptionLayout,
   ): void {
-    const font = Math.max(9, Math.round(size.width / 46));
-    const pad = Math.round(font * 0.6);
-    const lineHeight = Math.round(font * 1.45);
-    const boxHeight = lines.length * lineHeight + pad * 2;
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
-    ctx.fillRect(0, size.height - boxHeight, size.width, boxHeight);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, top, width, band.height);
     ctx.fillStyle = '#fff';
-    ctx.font = `${font}px system-ui, sans-serif`;
+    ctx.font = `${band.font}px system-ui, sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     lines.forEach((line, i) => {
-      ctx.fillText(line, pad, size.height - boxHeight + pad + i * lineHeight, size.width - pad * 2);
+      ctx.fillText(
+        line,
+        band.padding,
+        top + band.padding + i * band.lineHeight,
+        width - band.padding * 2,
+      );
     });
     ctx.restore();
   }
@@ -487,17 +504,14 @@
     const viewW = container.clientWidth;
     const viewH = container.clientHeight;
     const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH, zoom);
-    const size = fitSnapshot(viewW, viewH);
-    const canvas = document.createElement('canvas');
-    canvas.width = size.width;
-    canvas.height = size.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas indisponible');
-    ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, size.width, size.height);
-
-    // Les repères vivent dans le repère de la VUE : une seule mise à l'échelle.
-    const scale = size.width / Math.max(1, viewW);
+    // Taille tirée de la DÉCOUPE SOURCE, pas des points CSS de la vue : cadrer
+    // sur 390 px de large jetterait la moitié du détail que la caméra fournit
+    // — précisément celui du relief lointain qu'on cherche à juger.
+    const size = fitSnapshot(crop.sw, crop.sh);
     const aimInfo: SnapshotAim = {
+      time: new Date(),
+      viewpoint: { lat: viewpoint.lat, lon: viewpoint.lon },
+      eyeElevationM: eyeElevation,
       headingDeg: normalizeBearing(aim.heading + headingOffset),
       pitchDeg: aim.pitch + pitchOffset,
       headingOffsetDeg: headingOffset,
@@ -508,11 +522,26 @@
       zoom,
       sensors: !sensorless && gotSensor,
       horizon: horizonScreen.length > 1,
+      peaksStatus,
+      peaksLoaded: peaks.length,
+      peaksVisible: candidates.length,
       labels: labels.length,
     };
+
+    const caption = snapshotCaption(aimInfo);
+    const band = captionLayout(size.width, caption.length);
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height + band.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas indisponible');
+    ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, size.width, size.height);
+
+    // Les repères vivent dans le repère de la VUE : une seule mise à l'échelle.
+    const scale = size.width / Math.max(1, viewW);
     drawHorizon(ctx, scale);
     drawLabels(ctx, scale);
-    drawCaption(ctx, snapshotCaption(aimInfo), size);
+    drawCaption(ctx, caption, size.width, size.height, band);
 
     const blob = await canvasToBlob(canvas);
     const name = snapshotFileName(new Date());
@@ -530,8 +559,12 @@
       zoom: Number(zoom.toFixed(2)),
       capteurs: aimInfo.sensors,
       horizonTrace: aimInfo.horizon,
+      statutSommets: peaksStatus,
+      sommets: peaks.length,
+      visibles: candidates.length,
       etiquettes: labels.length,
-      image: size,
+      oeil: Math.round(eyeElevation),
+      image: { w: canvas.width, h: canvas.height, photo: size },
       vue: { w: viewW, h: viewH },
       video: { w: video.videoWidth, h: video.videoHeight },
       recadrage: {
@@ -545,7 +578,7 @@
     };
     lastCapture = meta;
     logDebug('viser:capture', meta);
-    return { blob, name, width: size.width, height: size.height, meta };
+    return { blob, name, width: canvas.width, height: canvas.height, meta };
   }
 
   /** Bouton « Capture pour Claude » : construit l'image puis la remet. */
