@@ -376,3 +376,27 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       COTE du capteur (invariant) plutot que le FOV de vue de l'instant — l'ecran a pu
       tourner entre le recalage et la capture, et les deux chiffres divergent alors sans
       que rien ne soit faux.
+- [x] Revue de l'algorithme du recalage : même résultat, 30 fois moins de calcul, et une
+      précision qui n'est plus quantifiée. (1) `matchSkyline` évaluait le profil théorique
+      pour chaque pose de la grille cap × assiette × FOV (~1,9 s sur Node desktop avec
+      estimation du FOV, donc plusieurs secondes d'interface figée sur téléphone) alors que
+      la lecture du profil ne dépend que du cap : elle est faite une fois par cap et
+      réutilisée pour toutes les assiettes (modèle d'assiette au premier ordre, exact en
+      dérivée : pOff·cos(azimut relatif)), puis un affinage EXACT par descente sur grille
+      resserrée (0,5° → 0,03°) recalcule les angles de chaque colonne à l'assiette et au
+      FOV testés — 58 ms mesurés, et la correction rendue n'est plus arrondie au pas de
+      grille (l'ancienne quantification de 0,5° d'assiette valait jusqu'à 0,25° d'erreur
+      systématique, l'ordre de grandeur des MAE observées sur le terrain) ; le modèle
+      additif de l'ancienne grille se trompait aussi de ~0,5° aux colonnes de bord pour
+      une correction d'assiette de 6°. (2) `computeDemSkyline` : pas de marche
+      proportionnel à la distance (30 m au premier plan au lieu de 150 m fixes — une arête
+      étroite à 2 km pouvait être sautée et l'horizon rabaissé de plusieurs degrés — puis
+      0,25 % de la distance) et coupure du rayon dès que le plafond du relief chargé ne
+      peut plus dépasser l'horizon déjà trouvé (borne monotone, cas de l'observateur au
+      point culminant traité) : 184 ms depuis une vallée synthétique contre 450 ms avant,
+      pour un échantillonnage cinq fois plus fin de près. (3) Échantillonneur d'altitude
+      (chemin chaud du maillage, de la visibilité et de l'horizon) : origine de la
+      projection inverse pré-réduite en sinus/cosinus, projection WebMercator faite une
+      fois par champ au lieu de deux à quatre — 1,6 fois plus rapide. Tests : identité
+      avec/sans plafond (et plafond sous l'œil), arête étroite résolue, corrections
+      sous-grille à 0,1° près, grosse correction d'assiette exacte aux bords.

@@ -36,8 +36,13 @@ scope.onmessage = (event) => {
     };
   });
 
+  // Le plafond du relief chargé borne ce qu'un rayon peut encore rencontrer :
+  // la marche s'arrête dès que rien au-delà ne peut dépasser l'horizon trouvé.
   const skyline = skylineStepDeg
-    ? computeDemSkyline(sample, eyeElevation, { stepDeg: skylineStepDeg })
+    ? computeDemSkyline(sample, eyeElevation, {
+        stepDeg: skylineStepDeg,
+        maxElevationM: Math.max(0, innerField.field.max(), outerField.field.max()),
+      })
     : null;
 
   scope.postMessage({ sights, skyline }, skyline ? [skyline.buffer] : []);

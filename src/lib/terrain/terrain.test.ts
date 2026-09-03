@@ -135,4 +135,26 @@ describe('GeoHeightField', () => {
     );
     expect(geo.contains(CHAMONIX)).toBe(false);
   });
+
+  it("l'API en espace pixel donne les mêmes verdicts et altitudes", () => {
+    const z = 11;
+    const x0 = Math.floor(lonToTileX(CHAMONIX.lon, z));
+    const y0 = Math.floor(latToTileY(CHAMONIX.lat, z));
+    const data = new Float32Array(TILE_SIZE * TILE_SIZE);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 37) % 1000;
+    const geo = new GeoHeightField(z, x0, y0, new HeightField(TILE_SIZE, TILE_SIZE, data));
+
+    for (const p of [CHAMONIX, { lat: 45.93, lon: 6.9 }, { lat: 46.5, lon: 8 }]) {
+      const { px, py } = geo.localPixel(p);
+      expect(geo.containsPixel(px, py)).toBe(geo.contains(p));
+      if (geo.contains(p)) expect(geo.elevationAtPixel(px, py)).toBe(geo.elevationAt(p));
+    }
+  });
+});
+
+describe('HeightField.max', () => {
+  it("rend l'altitude maximale de la grille", () => {
+    const field = new HeightField(3, 2, new Float32Array([1, -5, 4808.5, 0, 12, 7]));
+    expect(field.max()).toBe(4808.5);
+  });
 });

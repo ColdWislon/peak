@@ -16,6 +16,17 @@ export class HeightField {
     }
   }
 
+  /** Altitude maximale de la grille (m) — borne utile pour couper les marches de rayon. */
+  max(): number {
+    let best = -Infinity;
+    const data = this.data;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i]!;
+      if (v > best) best = v;
+    }
+    return best;
+  }
+
   /** Altitude du pixel (ix, iy), bords étirés (clamp). */
   at(ix: number, iy: number): number {
     const x = Math.max(0, Math.min(this.width - 1, ix));
@@ -64,26 +75,42 @@ export class GeoHeightField {
     return this.field.height / TILE_SIZE;
   }
 
-  /** Position (continue) dans l'espace pixel global du zoom, relative au bloc. */
-  private toLocalPixel(p: LatLon): { px: number; py: number } {
+  /**
+   * Position (continue) dans l'espace pixel du bloc : (0, 0) est le coin
+   * nord-ouest, (width, height) le coin sud-est. Publique pour que les
+   * échantillonneurs projettent UNE fois puis testent et lisent en espace pixel
+   * (`containsPixel`, `elevationAtPixel`) — la projection WebMercator est la
+   * part chère de chaque échantillon.
+   */
+  localPixel(p: LatLon): { px: number; py: number } {
     const px = (lonToTileX(p.lon, this.zoom) - this.originTileX) * TILE_SIZE;
     const py = (latToTileY(p.lat, this.zoom) - this.originTileY) * TILE_SIZE;
     return { px, py };
   }
 
-  /** Vrai si le point tombe dans l'emprise du bloc. */
-  contains(p: LatLon): boolean {
-    const { px, py } = this.toLocalPixel(p);
+  /** Vrai si la position pixel tombe dans l'emprise du bloc. */
+  containsPixel(px: number, py: number): boolean {
     return px >= 0 && py >= 0 && px <= this.field.width && py <= this.field.height;
   }
 
   /**
-   * Altitude (m) au point demandé, interpolation bilinéaire entre centres de
+   * Altitude (m) à la position pixel, interpolation bilinéaire entre centres de
    * pixels (le décalage de 0,5 convertit l'espace pixel en espace indice).
    */
-  elevationAt(p: LatLon): number {
-    const { px, py } = this.toLocalPixel(p);
+  elevationAtPixel(px: number, py: number): number {
     return this.field.sampleBilinear(px - 0.5, py - 0.5);
+  }
+
+  /** Vrai si le point tombe dans l'emprise du bloc. */
+  contains(p: LatLon): boolean {
+    const { px, py } = this.localPixel(p);
+    return this.containsPixel(px, py);
+  }
+
+  /** Altitude (m) au point demandé (voir `elevationAtPixel`). */
+  elevationAt(p: LatLon): number {
+    const { px, py } = this.localPixel(p);
+    return this.elevationAtPixel(px, py);
   }
 }
 

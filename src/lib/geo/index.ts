@@ -68,20 +68,31 @@ export function initialBearing(a: LatLon, b: LatLon): number {
 
 /** Point atteint depuis `origin` en suivant `bearingDeg` sur `distanceM` mètres. */
 export function destinationPoint(origin: LatLon, bearingDeg: number, distanceM: number): LatLon {
-  const delta = distanceM / EARTH_RADIUS_M;
-  const theta = degToRad(bearingDeg);
   const phi1 = degToRad(origin.lat);
-  const lambda1 = degToRad(origin.lon);
-
-  const phi2 = Math.asin(
-    Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta),
+  return destinationFromTrig(
+    Math.sin(phi1),
+    Math.cos(phi1),
+    degToRad(origin.lon),
+    degToRad(bearingDeg),
+    distanceM,
   );
+}
+
+/** Cœur de `destinationPoint`, l'origine déjà réduite en sinus/cosinus. */
+function destinationFromTrig(
+  sinPhi1: number,
+  cosPhi1: number,
+  lambda1: number,
+  theta: number,
+  distanceM: number,
+): LatLon {
+  const delta = distanceM / EARTH_RADIUS_M;
+  const sinDelta = Math.sin(delta);
+  const cosDelta = Math.cos(delta);
+  const sinPhi2 = sinPhi1 * cosDelta + cosPhi1 * sinDelta * Math.cos(theta);
+  const phi2 = Math.asin(Math.max(-1, Math.min(1, sinPhi2)));
   const lambda2 =
-    lambda1 +
-    Math.atan2(
-      Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
-      Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2),
-    );
+    lambda1 + Math.atan2(Math.sin(theta) * sinDelta * cosPhi1, cosDelta - sinPhi1 * sinPhi2);
 
   return { lat: radToDeg(phi2), lon: normalizeLon(radToDeg(lambda2)) };
 }
@@ -113,9 +124,25 @@ export function localEastNorth(origin: LatLon, point: LatLon): { east: number; n
  * réciproque (mêmes formules de grand cercle).
  */
 export function localToLatLon(origin: LatLon, east: number, north: number): LatLon {
-  const s = Math.hypot(east, north);
-  if (s === 0) return { lat: origin.lat, lon: origin.lon };
-  return destinationPoint(origin, radToDeg(Math.atan2(east, north)), s);
+  return makeLocalToLatLon(origin)(east, north);
+}
+
+/**
+ * `localToLatLon` spécialisé pour une origine fixe : les sinus/cosinus de
+ * l'origine sont calculés une fois pour toutes. C'est le chemin chaud des
+ * échantillonneurs d'altitude (des centaines de milliers d'appels par point
+ * de vue : maillage, visibilité, profil d'horizon).
+ */
+export function makeLocalToLatLon(origin: LatLon): (east: number, north: number) => LatLon {
+  const phi1 = degToRad(origin.lat);
+  const sinPhi1 = Math.sin(phi1);
+  const cosPhi1 = Math.cos(phi1);
+  const lambda1 = degToRad(origin.lon);
+  return (east, north) => {
+    const s = Math.hypot(east, north);
+    if (s === 0) return { lat: origin.lat, lon: origin.lon };
+    return destinationFromTrig(sinPhi1, cosPhi1, lambda1, Math.atan2(east, north), s);
+  };
 }
 
 /**

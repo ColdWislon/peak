@@ -8,6 +8,7 @@ import {
   initialBearing,
   localEastNorth,
   localToLatLon,
+  makeLocalToLatLon,
   normalizeBearing,
   normalizeLon,
   signedDeltaDeg,
@@ -154,5 +155,30 @@ describe('localToLatLon', () => {
     const p = localToLatLon(CHAMONIX, 0, 0);
     expect(p.lat).toBeCloseTo(CHAMONIX.lat, 12);
     expect(p.lon).toBeCloseTo(CHAMONIX.lon, 12);
+  });
+});
+
+describe('makeLocalToLatLon', () => {
+  it('rend exactement les mêmes points que localToLatLon', () => {
+    const toLatLon = makeLocalToLatLon(CHAMONIX);
+    for (const [east, north] of [
+      [0, 0],
+      [35_000, -28_000],
+      [-90_000, 12_000],
+      [300, 0],
+      [0, -300],
+    ]) {
+      const a = toLatLon(east!, north!);
+      const b = localToLatLon(CHAMONIX, east!, north!);
+      expect(a.lat).toBe(b.lat);
+      expect(a.lon).toBe(b.lon);
+    }
+  });
+
+  it('reste la réciproque de localEastNorth', () => {
+    const p = makeLocalToLatLon(CHAMONIX)(-64_000, 51_000);
+    const { east, north } = localEastNorth(CHAMONIX, p);
+    expect(east).toBeCloseTo(-64_000, 4);
+    expect(north).toBeCloseTo(51_000, 4);
   });
 });

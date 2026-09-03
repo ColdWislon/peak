@@ -1,4 +1,10 @@
-import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
+import {
+  apparentElevationAngle,
+  degToRad,
+  EFFECTIVE_EARTH_RADIUS_M,
+  normalizeBearing,
+  radToDeg,
+} from '../geo';
 import { projectToScreen, type ViewGeometry } from '../labels';
 import type { ElevationSampler } from '../visibility';
 
@@ -9,33 +15,75 @@ import type { ElevationSampler } from '../visibility';
  * 3. Mise en correspondance des deux profils → correction cap/assiette.
  */
 
+/** Distance (m) où commence la marche : le relief sous l'œil n'est pas testé. */
+const RAY_START_M = 300;
+/**
+ * Pas de marche relatif à la distance : un sommet de crête manqué de Δd le long
+ * du rayon, sur une pente de ~35°, fausse l'angle d'horizon de ~0,7·Δd/d — ce
+ * ratio borne cette erreur à ~0,1°. Le pas est donc fin au premier plan (là où
+ * les crêtes proches dominent l'horizon et où un pas fixe de 150 m rabotait
+ * jusqu'à 1° de relief) et s'élargit avec la distance sans perte angulaire.
+ */
+const RAY_STEP_RATIO = 0.0025;
+
 /**
  * Angle d'élévation maximal du terrain (rad) pour chaque pas d'azimut,
  * depuis l'œil. Bin i = azimut i × stepDeg.
+ *
+ * `maxElevationM` (plafond du relief chargé) permet de couper chaque rayon dès
+ * qu'aucun terrain au-delà ne peut plus dépasser l'horizon déjà trouvé — en
+ * montagne, la marche s'arrête en général à quelques dizaines de kilomètres.
  */
 export function computeDemSkyline(
   sample: ElevationSampler,
   eyeElevation: number,
-  options: { stepDeg?: number; maxDistanceM?: number; stepM?: number } = {},
+  options: {
+    stepDeg?: number;
+    maxDistanceM?: number;
+    /** Pas de marche minimal (m), au premier plan. */
+    stepM?: number;
+    /** Altitude maximale du relief échantillonnable (m), si connue. */
+    maxElevationM?: number;
+  } = {},
 ): Float32Array {
   const stepDeg = options.stepDeg ?? 0.5;
   const maxDistanceM = options.maxDistanceM ?? 90_000;
-  const stepM = options.stepM ?? 150;
+  const minStepM = options.stepM ?? 30;
   const bins = Math.round(360 / stepDeg);
   const out = new Float32Array(bins);
+  const ceiling =
+    options.maxElevationM === undefined
+      ? null
+      : skylineCeiling(options.maxElevationM - eyeElevation, maxDistanceM);
 
   for (let i = 0; i < bins; i++) {
     const az = degToRad(i * stepDeg);
     const dirEast = Math.sin(az);
     const dirNorth = Math.cos(az);
     let best = -Infinity;
-    for (let d = 300; d <= maxDistanceM; d += stepM) {
+    for (let d = RAY_START_M; d <= maxDistanceM; d += Math.max(minStepM, d * RAY_STEP_RATIO)) {
       const angle = apparentElevationAngle(d, sample(dirEast * d, dirNorth * d) - eyeElevation);
       if (angle > best) best = angle;
+      if (ceiling !== null && ceiling(d) <= best) break;
     }
     out[i] = best;
   }
   return out;
+}
+
+/**
+ * Borne supérieure (rad) de l'angle d'élévation qu'un relief plafonné à
+ * `maxHeightDiffM` au-dessus de l'œil peut atteindre à une distance ≥ d.
+ * Plafond au-dessus de l'œil : la borne décroît avec la distance (la fonction
+ * atan((H − d²/2R)/d) est décroissante) et vaut sa valeur en d. Plafond SOUS
+ * l'œil (observateur au point culminant) : elle culmine en d* = √(2R·|H|) —
+ * on l'évalue là, borné à l'intervalle restant.
+ */
+function skylineCeiling(maxHeightDiffM: number, maxDistanceM: number): (d: number) => number {
+  if (maxHeightDiffM >= 0) return (d) => apparentElevationAngle(d, maxHeightDiffM);
+  const peakDistance = Math.sqrt(2 * EFFECTIVE_EARTH_RADIUS_M * -maxHeightDiffM);
+  return (d) =>
+    apparentElevationAngle(Math.min(maxDistanceM, Math.max(d, peakDistance)), maxHeightDiffM);
 }
 
 /** Horizon détecté dans l'image : ligne (px) et confiance (0..1) par colonne. */
@@ -283,9 +331,23 @@ export function pixelToAngles(
   const rx = ndcX * tanH;
   const ry = ndcY * tanV;
   const p = degToRad(pitchDeg);
-  // Rayon caméra (rx, ry, −1) redressé de l'assiette (rotation X d'angle p).
-  const wy = ry * Math.cos(p) + Math.sin(p);
-  const wz = ry * Math.sin(p) - Math.cos(p);
+  return rayAngles(rx, ry, Math.cos(p), Math.sin(p));
+}
+
+/**
+ * Rayon caméra (rx, ry, −1) redressé de l'assiette (rotation X d'angle p) :
+ * azimut relatif et élévation (°). Cœur de `pixelToAngles`, sans conversion
+ * ni tangentes recalculées — appelé des dizaines de milliers de fois par la
+ * mise en correspondance.
+ */
+function rayAngles(
+  rx: number,
+  ry: number,
+  cosP: number,
+  sinP: number,
+): { azRelDeg: number; elevDeg: number } {
+  const wy = ry * cosP + sinP;
+  const wz = ry * sinP - cosP;
   const norm = Math.hypot(rx, wy, wz);
   return {
     azRelDeg: radToDeg(Math.atan2(rx, -wz)),
@@ -303,8 +365,50 @@ function demAngleDeg(skyline: Float32Array, azimuthDeg: number, stepDeg: number)
 }
 
 /**
+ * Profil théorique en degrés, bouclé (une case de plus pour interpoler sans
+ * modulo), et sa lecture interpolée — la version chaude de `demAngleDeg`.
+ */
+function makeProfileLookup(skyline: Float32Array, stepDeg: number): (azimuthDeg: number) => number {
+  const len = skyline.length;
+  const profile = new Float64Array(len + 1);
+  for (let i = 0; i < len; i++) profile[i] = radToDeg(skyline[i]!);
+  profile[len] = profile[0]!;
+  const binsPerDeg = 1 / stepDeg;
+  return (azimuthDeg) => {
+    let pos = azimuthDeg * binsPerDeg;
+    pos -= Math.floor(pos / len) * len;
+    if (pos >= len) pos -= len; // arrondi flottant sur un azimut à peine négatif
+    const i = Math.floor(pos);
+    const a = profile[i]!;
+    return a + (profile[i + 1]! - a) * (pos - i);
+  };
+}
+
+/** Pas de la grille grossière (°) : le profil est à 0,5°, l'affinage fait le reste. */
+const COARSE_HEADING_STEP_DEG = 0.5;
+const COARSE_PITCH_STEP_DEG = 0.5;
+/** Niveaux d'affinage (le pas est divisé par deux à chacun) : 0,5° → 0,03°. */
+const REFINE_LEVELS = 4;
+/** Pénalités de départage (voir `matchSkyline`). */
+const PITCH_PENALTY_PER_DEG = 0.05;
+const HEADING_PENALTY_PER_DEG = 0.001;
+const FOV_PENALTY_PER_DEG = 0.002;
+
+/**
  * Cherche la correction (cap, assiette) qui aligne l'horizon détecté sur le
  * profil théorique. Retourne null si trop peu de colonnes sont exploitables.
+ *
+ * Deux étages. (1) Grille grossière sur cap × assiette (× FOV si demandé) avec
+ * un modèle d'assiette au premier ordre : la lecture du profil ne dépend que
+ * du cap, elle est donc faite une fois par cap et réutilisée pour toutes les
+ * assiettes — c'est ce qui rend la recherche ~30 fois moins chère qu'une
+ * évaluation complète par pose, et permet de la lancer sur le fil principal
+ * sans figer l'interface. (2) Affinage EXACT (les angles de chaque colonne
+ * sont recalculés à l'assiette et au FOV testés) par descente sur grille
+ * resserrée autour de l'optimum grossier : la correction rendue n'est plus
+ * quantifiée au pas de la grille (0,25°/0,5° auparavant, soit jusqu'à 0,25°
+ * d'erreur d'assiette systématique), et l'approximation de l'étage 1 —
+ * l'assiette ne translate pas exactement les colonnes de bord — est levée.
  */
 export function matchSkyline(
   detected: DetectedSkyline,
@@ -337,96 +441,189 @@ export function matchSkyline(
     if (detected.confidence[x]! >= minConfidence) columns.push(x);
   }
   if (columns.length < detected.width * 0.25) return null;
+  const n = columns.length;
 
-  // Les angles des colonnes dépendent du FOV testé : tout est recalculé par candidat.
-  const evaluate = (fovDeg: number): { match: SkylineMatch; cost: number } => {
-    const samples = columns.map((x) =>
-      pixelToAngles(x, detected.rows[x]!, detected.width, detected.height, view.pitchDeg, fovDeg),
-    );
-    let bestHOff = 0;
-    let bestPOff = 0;
-    let bestCost = Infinity;
-    for (let hOff = -searchDeg; hOff <= searchDeg; hOff += 0.25) {
-      for (let pOff = -pitchSearchDeg; pOff <= pitchSearchDeg; pOff += 0.5) {
-        let sum = 0;
-        for (const s of samples) {
-          const expected = demAngleDeg(demSkyline, view.headingDeg + hOff + s.azRelDeg, demStepDeg);
-          sum += Math.min(outlierCapDeg, Math.abs(expected - (s.elevDeg + pOff)));
-        }
-        const mean = sum / samples.length;
-        // Un horizon localement rectiligne rend cap et assiette interchangeables :
-        // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
-        // Et sur un horizon PLAT le cap est indéterminé : la pénalité minuscule
-        // sur hOff casse l'égalité vers « pas de correction de cap » au lieu du
-        // premier candidat de la grille (−25°).
-        const cost = mean + 0.05 * Math.abs(pOff) + 0.001 * Math.abs(hOff);
-        if (cost < bestCost) {
-          bestCost = cost;
-          bestHOff = hOff;
-          bestPOff = pOff;
-        }
-      }
-    }
-
-    // Statistiques du meilleur alignement, colonnes concordantes seulement :
-    // la MAE rapportée juge la qualité du verrouillage, pas les parasites.
-    let inliers = 0;
-    let inlierSum = 0;
-    for (const s of samples) {
-      const expected = demAngleDeg(demSkyline, view.headingDeg + bestHOff + s.azRelDeg, demStepDeg);
-      const err = Math.abs(expected - (s.elevDeg + bestPOff));
-      if (err < outlierCapDeg) {
-        inliers++;
-        inlierSum += err;
-      }
-    }
-    return {
-      match: {
-        headingOffsetDeg: bestHOff,
-        pitchOffsetDeg: bestPOff,
-        fovDeg,
-        fovAtBound: false,
-        maeDeg: inliers > 0 ? inlierSum / inliers : Infinity,
-        usedColumns: samples.length,
-        inlierColumns: inliers,
-      },
-      cost: bestCost,
-    };
-  };
-
-  if (!options.fovSearch) return evaluate(view.fovDeg).match;
-
-  // Estimation du FOV : balayage grossier puis fin, avec un a priori doux vers
-  // le FOV courant (un horizon plat ne contraint pas l'optique : on n'en change
-  // alors pas sans raison).
-  const minDeg = options.fovSearch.minDeg ?? 40;
-  const maxDeg = options.fovSearch.maxDeg ?? 80;
-  const coarse = options.fovSearch.coarseStepDeg ?? 4;
-  const fine = options.fovSearch.fineStepDeg ?? 1;
-
-  let bestOverall: { match: SkylineMatch; cost: number } | null = null;
-  const consider = (fovDeg: number) => {
-    const r = evaluate(fovDeg);
-    // A priori très doux : la surface de coût est plate en FOV (le cap absorbe
-    // une partie de la compression) — il départage sans jamais dominer l'écart
-    // réel mesuré (~0,005°/° de FOV sur un horizon net).
-    const cost = r.cost + 0.002 * Math.abs(fovDeg - view.fovDeg);
-    if (!bestOverall || cost < bestOverall.cost) bestOverall = { match: r.match, cost };
-  };
-
-  for (let f = minDeg; f <= maxDeg; f += coarse) consider(f);
-  const center = bestOverall!.match.fovDeg;
-  for (
-    let f = Math.max(minDeg, center - coarse);
-    f <= Math.min(maxDeg, center + coarse);
-    f += fine
-  ) {
-    consider(f);
+  const lookup = makeProfileLookup(demSkyline, demStepDeg);
+  const aspect = detected.width / detected.height;
+  // Coordonnées écran normalisées des colonnes retenues (indépendantes du FOV).
+  const ndcX = new Float64Array(n);
+  const ndcY = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    const x = columns[k]!;
+    ndcX[k] = (2 * (x + 0.5)) / detected.width - 1;
+    ndcY[k] = 1 - (2 * (detected.rows[x]! + 0.5)) / detected.height;
   }
-  const best = bestOverall!.match;
-  // Optimum collé à une borne : la vraie valeur est probablement au-delà.
-  best.fovAtBound = best.fovDeg <= minDeg + fine / 2 || best.fovDeg >= maxDeg - fine / 2;
-  return best;
+  // Rayons caméra (rx, ry, −1) des colonnes au FOV courant, recalculés au
+  // changement de FOV seulement (l'affinage en teste rarement un nouveau).
+  const rx = new Float64Array(n);
+  const ry = new Float64Array(n);
+  let currentFov = NaN;
+  const setFov = (fovDeg: number): void => {
+    if (fovDeg === currentFov) return;
+    currentFov = fovDeg;
+    const tanV = Math.tan(degToRad(fovDeg) / 2);
+    const tanH = tanV * aspect;
+    for (let k = 0; k < n; k++) {
+      rx[k] = ndcX[k]! * tanH;
+      ry[k] = ndcY[k]! * tanV;
+    }
+  };
+
+  const fovSearch = options.fovSearch;
+  const minFov = fovSearch?.minDeg ?? 40;
+  const maxFov = fovSearch?.maxDeg ?? 80;
+  const fovCoarse = fovSearch?.coarseStepDeg ?? 4;
+  const fovFine = fovSearch?.fineStepDeg ?? 1;
+
+  // Un horizon localement rectiligne rend cap et assiette interchangeables :
+  // on départage en préférant l'assiette des capteurs (pénalité sur pOff).
+  // Sur un horizon PLAT le cap est indéterminé : la pénalité minuscule sur
+  // hOff casse l'égalité vers « pas de correction de cap ». Et la surface de
+  // coût est plate en FOV (le cap absorbe une partie de la compression) : un
+  // a priori très doux vers le FOV courant départage sans jamais dominer
+  // l'écart réel mesuré (~0,005°/° de FOV sur un horizon net).
+  const penalty = (hOff: number, pOff: number, fovDeg: number): number =>
+    PITCH_PENALTY_PER_DEG * Math.abs(pOff) +
+    HEADING_PENALTY_PER_DEG * Math.abs(hOff) +
+    (fovSearch ? FOV_PENALTY_PER_DEG * Math.abs(fovDeg - view.fovDeg) : 0);
+
+  /**
+   * Étage 1 : meilleure pose (cap, assiette) sur la grille grossière pour un
+   * FOV donné. Modèle d'assiette au premier ordre : une correction pOff
+   * translate l'élévation d'une colonne de pOff·cos(azimut relatif) — exact
+   * en dérivée, à toute assiette — et son azimut n'est pas touché.
+   */
+  const az0 = new Float64Array(n);
+  const el0 = new Float64Array(n);
+  const cosAz = new Float64Array(n);
+  const residual = new Float64Array(n);
+  const coarse = (fovDeg: number): { hOff: number; pOff: number; cost: number } => {
+    setFov(fovDeg);
+    const p = degToRad(view.pitchDeg);
+    const cosP = Math.cos(p);
+    const sinP = Math.sin(p);
+    for (let k = 0; k < n; k++) {
+      const a = rayAngles(rx[k]!, ry[k]!, cosP, sinP);
+      az0[k] = view.headingDeg + a.azRelDeg;
+      el0[k] = a.elevDeg;
+      cosAz[k] = Math.cos(degToRad(a.azRelDeg));
+    }
+    let best = { hOff: 0, pOff: 0, cost: Infinity };
+    for (let hOff = -searchDeg; hOff <= searchDeg; hOff += COARSE_HEADING_STEP_DEG) {
+      for (let k = 0; k < n; k++) residual[k] = lookup(az0[k]! + hOff) - el0[k]!;
+      for (let pOff = -pitchSearchDeg; pOff <= pitchSearchDeg; pOff += COARSE_PITCH_STEP_DEG) {
+        let sum = 0;
+        for (let k = 0; k < n; k++) {
+          const err = Math.abs(residual[k]! - pOff * cosAz[k]!);
+          sum += err < outlierCapDeg ? err : outlierCapDeg;
+        }
+        const cost = sum / n + penalty(hOff, pOff, fovDeg);
+        if (cost < best.cost) best = { hOff, pOff, cost };
+      }
+    }
+    return best;
+  };
+
+  /** Coût exact d'une pose : angles de chaque colonne recalculés à cette assiette et ce FOV. */
+  const exactCost = (hOff: number, pOff: number, fovDeg: number): number => {
+    setFov(fovDeg);
+    const p = degToRad(view.pitchDeg + pOff);
+    const cosP = Math.cos(p);
+    const sinP = Math.sin(p);
+    const heading = view.headingDeg + hOff;
+    let sum = 0;
+    for (let k = 0; k < n; k++) {
+      const a = rayAngles(rx[k]!, ry[k]!, cosP, sinP);
+      const err = Math.abs(lookup(heading + a.azRelDeg) - a.elevDeg);
+      sum += err < outlierCapDeg ? err : outlierCapDeg;
+    }
+    return sum / n + penalty(hOff, pOff, fovDeg);
+  };
+
+  // Étage 1 sur le FOV courant, ou balayage grossier puis fin du FOV.
+  type Pose = { hOff: number; pOff: number; fovDeg: number; cost: number };
+  let seed: Pose;
+  if (!fovSearch) {
+    seed = { ...coarse(view.fovDeg), fovDeg: view.fovDeg };
+  } else {
+    let best: Pose | null = null;
+    const consider = (fovDeg: number) => {
+      const r = coarse(fovDeg);
+      if (!best || r.cost < best.cost) best = { ...r, fovDeg };
+    };
+    for (let f = minFov; f <= maxFov; f += fovCoarse) consider(f);
+    const center = best!.fovDeg;
+    for (
+      let f = Math.max(minFov, center - fovCoarse);
+      f <= Math.min(maxFov, center + fovCoarse);
+      f += fovFine
+    ) {
+      consider(f);
+    }
+    seed = best!;
+  }
+
+  // Étage 2 : descente exacte sur grille resserrée autour de l'optimum grossier.
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  let pose = { ...seed, cost: exactCost(seed.hOff, seed.pOff, seed.fovDeg) };
+  const step = {
+    h: COARSE_HEADING_STEP_DEG,
+    p: COARSE_PITCH_STEP_DEG,
+    f: fovSearch ? fovFine : 0,
+  };
+  const fovDeltas = fovSearch ? [-1, 0, 1] : [0];
+  for (let level = 0; level < REFINE_LEVELS; level++) {
+    for (let moves = 0; moves < 8; moves++) {
+      let next = pose;
+      for (const dh of [-1, 0, 1]) {
+        for (const dp of [-1, 0, 1]) {
+          for (const df of fovDeltas) {
+            if (dh === 0 && dp === 0 && df === 0) continue;
+            const hOff = clamp(pose.hOff + dh * step.h, -searchDeg, searchDeg);
+            const pOff = clamp(pose.pOff + dp * step.p, -pitchSearchDeg, pitchSearchDeg);
+            const fovDeg = clamp(pose.fovDeg + df * step.f, minFov, maxFov);
+            const cost = exactCost(hOff, pOff, fovDeg);
+            if (cost < next.cost - 1e-12) next = { hOff, pOff, fovDeg, cost };
+          }
+        }
+      }
+      if (next === pose) break;
+      pose = next;
+    }
+    step.h /= 2;
+    step.p /= 2;
+    step.f /= 2;
+  }
+
+  // Statistiques de l'alignement retenu, colonnes concordantes seulement :
+  // la MAE rapportée juge la qualité du verrouillage, pas les parasites.
+  setFov(pose.fovDeg);
+  const p = degToRad(view.pitchDeg + pose.pOff);
+  const cosP = Math.cos(p);
+  const sinP = Math.sin(p);
+  let inliers = 0;
+  let inlierSum = 0;
+  for (let k = 0; k < n; k++) {
+    const a = rayAngles(rx[k]!, ry[k]!, cosP, sinP);
+    const err = Math.abs(lookup(view.headingDeg + pose.hOff + a.azRelDeg) - a.elevDeg);
+    if (err < outlierCapDeg) {
+      inliers++;
+      inlierSum += err;
+    }
+  }
+
+  return {
+    headingOffsetDeg: pose.hOff,
+    pitchOffsetDeg: pose.pOff,
+    fovDeg: pose.fovDeg,
+    // Optimum collé à une borne : la vraie valeur est probablement au-delà.
+    fovAtBound:
+      fovSearch !== undefined &&
+      (pose.fovDeg <= minFov + fovFine / 2 || pose.fovDeg >= maxFov - fovFine / 2),
+    maeDeg: inliers > 0 ? inlierSum / inliers : Infinity,
+    usedColumns: n,
+    inlierColumns: inliers,
+  };
 }
 
 /** MAE maximale (°) des colonnes concordantes pour appliquer un recalage.

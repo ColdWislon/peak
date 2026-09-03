@@ -22,6 +22,47 @@ describe('computeDemSkyline', () => {
     expect(radToDeg(skyline[0]!)).toBeGreaterThan(10); // mur à ~12,5°
     expect(radToDeg(skyline[180]!)).toBeLessThan(0.5); // plaine sous l'œil
   });
+
+  it('coupe la marche grâce au plafond du relief sans changer le résultat', () => {
+    // Anneau de crêtes à 2000 m entre 9 et 11 km, tout autour, plaine ailleurs.
+    const ring: ElevationSampler = (east, north) => {
+      const r = Math.hypot(east, north);
+      return r >= 9_000 && r <= 11_000 ? 2000 : 0;
+    };
+    let calls = 0;
+    const counted: ElevationSampler = (e, n) => {
+      calls++;
+      return ring(e, n);
+    };
+    const full = computeDemSkyline(counted, 10, { stepDeg: 2 });
+    const fullCalls = calls;
+    calls = 0;
+    const cut = computeDemSkyline(counted, 10, { stepDeg: 2, maxElevationM: 2000 });
+    expect(Array.from(cut)).toEqual(Array.from(full));
+    // La crête à 12,5° arrête chaque rayon dès que 2000 m ne peuvent plus la
+    // dépasser (~9 km) : la marche est bien plus courte que 90 km.
+    expect(calls).toBeLessThan(fullCalls * 0.5);
+  });
+
+  it("plafond sous l'œil (observateur au point culminant) : même résultat", () => {
+    // Depuis 3000 m, tout le relief (≤ 2000 m) est sous l'horizontale ; la
+    // borne culmine à distance finie et ne doit rien couper à tort.
+    const full = computeDemSkyline(wall, 3000, { stepDeg: 5 });
+    const cut = computeDemSkyline(wall, 3000, { stepDeg: 5, maxElevationM: 2000 });
+    expect(Array.from(cut)).toEqual(Array.from(full));
+  });
+
+  it("résout une crête étroite proche qu'un pas fixe de 150 m rabotait", () => {
+    // Arête de 40 m d'épaisseur à 2 km, 300 m au-dessus de la plaine : elle
+    // domine l'horizon de ~8°. Un pas de 150 m saute par-dessus (échantillons à
+    // 1950 et 2100 m) ; le pas fin du premier plan la voit.
+    const ridge: ElevationSampler = (_e, north) => (north >= 2000 && north <= 2040 ? 300 : 0);
+    const expected = radToDeg(Math.atan2(300 - 10, 2010));
+    const fine = computeDemSkyline(ridge, 10, { stepDeg: 90 });
+    const coarse = computeDemSkyline(ridge, 10, { stepDeg: 90, stepM: 150 });
+    expect(Math.abs(radToDeg(fine[0]!) - expected)).toBeLessThan(0.1);
+    expect(radToDeg(coarse[0]!)).toBeLessThan(expected - 5);
+  });
 });
 
 describe('detectImageSkyline', () => {
@@ -160,14 +201,19 @@ describe('matchSkyline', () => {
   };
 
   /** Horizon « photographié » depuis la vraie pose (cap 137°, assiette 3°). */
-  function renderDetected(width: number, height: number, fov: number): DetectedSkyline {
+  function renderDetected(
+    width: number,
+    height: number,
+    fov: number,
+    truePitchDeg = 3,
+  ): DetectedSkyline {
     const rows = new Float32Array(width);
     const confidence = new Float32Array(width).fill(1);
     for (let x = 0; x < width; x++) {
       let bestY = 0;
       let bestErr = Infinity;
       for (let y = 0; y < height; y++) {
-        const { azRelDeg, elevDeg } = pixelToAngles(x, y, width, height, 3, fov);
+        const { azRelDeg, elevDeg } = pixelToAngles(x, y, width, height, truePitchDeg, fov);
         const err = Math.abs(elevDeg - demDeg(137 + azRelDeg));
         if (err < bestErr) {
           bestErr = err;
@@ -189,6 +235,36 @@ describe('matchSkyline', () => {
     expect(Math.abs(match!.headingOffsetDeg - 7)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(match!.pitchOffsetDeg - -1)).toBeLessThanOrEqual(0.75);
     expect(match!.maeDeg).toBeLessThan(0.6);
+  });
+
+  it('affine sous le pas de grille : cap et assiette à 0,1° près', () => {
+    // Vraies corrections 6,7° et −1,2° : ni multiples de 0,25° ni de 0,5°. La
+    // grille seule les arrondissait (jusqu'à 0,25° d'assiette perdue) ; la
+    // descente exacte les retrouve.
+    const detected = renderDetected(240, 180, 55);
+    const match = matchSkyline(detected, { headingDeg: 130.3, pitchDeg: 4.2, fovDeg: 55 }, dem, {
+      demStepDeg: DEM_STEP,
+    });
+    expect(match).not.toBeNull();
+    expect(Math.abs(match!.headingOffsetDeg - 6.7)).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(match!.pitchOffsetDeg - -1.2)).toBeLessThanOrEqual(0.1);
+    expect(match!.maeDeg).toBeLessThan(0.2);
+  });
+
+  it("reste exact pour une grosse correction d'assiette aux colonnes de bord", () => {
+    // Une correction d'assiette ne translate pas les colonnes de bord d'autant
+    // que le centre (facteur cos de l'azimut relatif, et l'azimut bouge aussi) :
+    // le modèle additif se trompait de ~0,5° au bord pour 6° de correction.
+    // L'affinage recalcule les angles exacts à l'assiette testée.
+    const detected = renderDetected(240, 180, 65);
+    const match = matchSkyline(detected, { headingDeg: 130, pitchDeg: 9, fovDeg: 65 }, dem, {
+      demStepDeg: DEM_STEP,
+    });
+    expect(match).not.toBeNull();
+    expect(Math.abs(match!.headingOffsetDeg - 7)).toBeLessThanOrEqual(0.15);
+    expect(Math.abs(match!.pitchOffsetDeg - -6)).toBeLessThanOrEqual(0.15);
+    expect(match!.maeDeg).toBeLessThan(0.25);
+    expect(match!.inlierColumns).toBe(match!.usedColumns);
   });
 
   it('estime aussi le FOV réel de la caméra depuis une hypothèse fausse', () => {
