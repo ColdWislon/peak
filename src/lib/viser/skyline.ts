@@ -27,6 +27,66 @@ const RAY_START_M = 300;
 const RAY_STEP_RATIO = 0.0025;
 
 /**
+ * Sauts de profondeur qui font une crête : le relief qui dépasse une crête
+ * derrière elle doit être nettement plus loin (au moins ce ratio de la
+ * distance de la crête, et au moins `RIDGE_MIN_GAP_M`). Une ondulation du DEM
+ * sur un versant face à l'œil, rattrapée quelques pas plus loin, n'en est pas
+ * une — sinon chaque pente se couvrait de traits.
+ */
+const RIDGE_DEPTH_RATIO = 0.3;
+const RIDGE_MIN_GAP_M = 300;
+/**
+ * Creux minimal (rad) derrière une crête : le terrain caché entre elle et le
+ * relief qui la dépasse doit descendre d'au moins autant sous son angle. Une
+ * plaine qui s'enfonce sous la courbure terrestre à 13 km devant un massif
+ * lointain n'est pas une crête (le creux y est de quelques centièmes de degré).
+ */
+const RIDGE_MIN_DROP_RAD = degToRad(0.5);
+/**
+ * Chaînage d'une crête d'un azimut au suivant : même relief si la distance
+ * de silhouette varie de moins de ce facteur et l'angle de moins de cette
+ * borne. Au-delà, c'est une autre crête (ou la fin de celle-ci).
+ */
+const RIDGE_LINK_MAX_RATIO = 1.5;
+const RIDGE_LINK_MAX_ANGLE_RAD = degToRad(5);
+/** Crêtes plus courtes (en pas d'azimut) : du bruit, pas un trait à tracer. */
+const RIDGE_MIN_BINS = 4;
+
+/**
+ * Crête intermédiaire : silhouette d'un relief devant d'autres, tracée sur
+ * des pas d'azimut consécutifs. L'horizon lui-même n'en fait pas partie (il
+ * a son propre profil complet) : une crête s'arrête là où elle DEVIENT
+ * l'horizon, et le trait d'horizon prend le relais.
+ */
+export interface RidgeLine {
+  /** Pas d'azimut du premier point (azimut = startBin × stepDeg), bouclé. */
+  startBin: number;
+  /** Angle d'élévation (rad) de chaque pas consécutif à partir de startBin. */
+  angles: Float32Array;
+}
+
+export interface DemProfile {
+  /** Angle d'élévation maximal (rad) par pas d'azimut — l'horizon. */
+  skyline: Float32Array;
+  /** Crêtes intermédiaires chaînées en polylignes. */
+  ridges: RidgeLine[];
+}
+
+interface RidgePoint {
+  angle: number;
+  distanceM: number;
+}
+
+export interface DemProfileOptions {
+  stepDeg?: number;
+  maxDistanceM?: number;
+  /** Pas de marche minimal (m), au premier plan. */
+  stepM?: number;
+  /** Altitude maximale du relief échantillonnable (m), si connue. */
+  maxElevationM?: number;
+}
+
+/**
  * Angle d'élévation maximal du terrain (rad) pour chaque pas d'azimut,
  * depuis l'œil. Bin i = azimut i × stepDeg.
  *
@@ -37,20 +97,31 @@ const RAY_STEP_RATIO = 0.0025;
 export function computeDemSkyline(
   sample: ElevationSampler,
   eyeElevation: number,
-  options: {
-    stepDeg?: number;
-    maxDistanceM?: number;
-    /** Pas de marche minimal (m), au premier plan. */
-    stepM?: number;
-    /** Altitude maximale du relief échantillonnable (m), si connue. */
-    maxElevationM?: number;
-  } = {},
+  options: DemProfileOptions = {},
 ): Float32Array {
+  return computeDemProfile(sample, eyeElevation, options).skyline;
+}
+
+/**
+ * Horizon ET crêtes intermédiaires en une seule marche de rayon. Le long
+ * d'un rayon, le terrain visible est celui qui dépasse le maximum courant ;
+ * quand un relief plus lointain dépasse à nouveau ce maximum après un trou
+ * de profondeur franc, la crête qui tenait le maximum jusque-là est une
+ * silhouette vue devant lui — un trait à tracer. Le dernier maximum est
+ * l'horizon. Les crêtes des azimuts voisins sont ensuite chaînées par
+ * continuité de distance en polylignes (`linkRidges`).
+ */
+export function computeDemProfile(
+  sample: ElevationSampler,
+  eyeElevation: number,
+  options: DemProfileOptions = {},
+): DemProfile {
   const stepDeg = options.stepDeg ?? 0.5;
   const maxDistanceM = options.maxDistanceM ?? 90_000;
   const minStepM = options.stepM ?? 30;
   const bins = Math.round(360 / stepDeg);
-  const out = new Float32Array(bins);
+  const skyline = new Float32Array(bins);
+  const ridgeBins: RidgePoint[][] = new Array<RidgePoint[]>(bins);
   const ceiling =
     options.maxElevationM === undefined
       ? null
@@ -60,15 +131,129 @@ export function computeDemSkyline(
     const az = degToRad(i * stepDeg);
     const dirEast = Math.sin(az);
     const dirNorth = Math.cos(az);
+    const found: RidgePoint[] = [];
     let best = -Infinity;
+    let bestD = 0;
+    /** Angle le plus bas rencontré depuis que `best` tient (le creux caché). */
+    let lowest = Infinity;
     for (let d = RAY_START_M; d <= maxDistanceM; d += Math.max(minStepM, d * RAY_STEP_RATIO)) {
       const angle = apparentElevationAngle(d, sample(dirEast * d, dirNorth * d) - eyeElevation);
-      if (angle > best) best = angle;
+      if (angle > best) {
+        // Le maximum tenait depuis bestD : s'il est repris bien plus loin, avec
+        // un vrai creux entre les deux, ce creux était caché derrière une crête.
+        if (
+          d - bestD >= Math.max(RIDGE_MIN_GAP_M, RIDGE_DEPTH_RATIO * bestD) &&
+          best - lowest >= RIDGE_MIN_DROP_RAD
+        ) {
+          found.push({ angle: best, distanceM: bestD });
+        }
+        best = angle;
+        bestD = d;
+        lowest = Infinity;
+      } else if (angle < lowest) {
+        lowest = angle;
+      }
       if (ceiling !== null && ceiling(d) <= best) break;
     }
-    out[i] = best;
+    skyline[i] = best;
+    ridgeBins[i] = found;
   }
-  return out;
+  return { skyline, ridges: linkRidges(ridgeBins) };
+}
+
+interface RidgeChain {
+  startBin: number;
+  angles: number[];
+  firstDistanceM: number;
+  lastDistanceM: number;
+}
+
+function ridgesContinue(fromDistanceM: number, fromAngle: number, to: RidgePoint): number | null {
+  const ratio = Math.abs(Math.log(fromDistanceM / to.distanceM));
+  if (ratio > Math.log(RIDGE_LINK_MAX_RATIO)) return null;
+  if (Math.abs(fromAngle - to.angle) > RIDGE_LINK_MAX_ANGLE_RAD) return null;
+  return ratio;
+}
+
+/**
+ * Chaîne les crêtes d'un pas d'azimut au suivant : appariement glouton par
+ * proximité de distance (une crête reste à peu près à la même distance d'un
+ * pas à l'autre ; deux crêtes superposées à des distances différentes sont
+ * deux traits). Une chaîne sans suite se termine, une crête sans prédécesseur
+ * en ouvre une. La couture 360°→0° est recousue après coup.
+ */
+function linkRidges(ridgeBins: RidgePoint[][]): RidgeLine[] {
+  const bins = ridgeBins.length;
+  const done: RidgeChain[] = [];
+  let active: RidgeChain[] = [];
+
+  for (let i = 0; i < bins; i++) {
+    const points = ridgeBins[i]!;
+    const pairs: Array<{ chain: RidgeChain; point: RidgePoint; cost: number }> = [];
+    for (const chain of active) {
+      const lastAngle = chain.angles[chain.angles.length - 1]!;
+      for (const point of points) {
+        const cost = ridgesContinue(chain.lastDistanceM, lastAngle, point);
+        if (cost !== null) pairs.push({ chain, point, cost });
+      }
+    }
+    pairs.sort((a, b) => a.cost - b.cost);
+    const usedChains = new Set<RidgeChain>();
+    const usedPoints = new Set<RidgePoint>();
+    const next: RidgeChain[] = [];
+    for (const { chain, point } of pairs) {
+      if (usedChains.has(chain) || usedPoints.has(point)) continue;
+      usedChains.add(chain);
+      usedPoints.add(point);
+      chain.angles.push(point.angle);
+      chain.lastDistanceM = point.distanceM;
+      next.push(chain);
+    }
+    for (const chain of active) if (!usedChains.has(chain)) done.push(chain);
+    for (const point of points) {
+      if (usedPoints.has(point)) continue;
+      next.push({
+        startBin: i,
+        angles: [point.angle],
+        firstDistanceM: point.distanceM,
+        lastDistanceM: point.distanceM,
+      });
+    }
+    active = next;
+  }
+
+  // Couture : une chaîne encore vivante au dernier pas continue peut-être
+  // dans une chaîne ouverte au pas 0 — même crête, coupée par le bouclage.
+  for (const chain of active) {
+    const lastAngle = chain.angles[chain.angles.length - 1]!;
+    let bestIndex = -1;
+    let bestCost = Infinity;
+    for (let k = 0; k < done.length; k++) {
+      const head = done[k]!;
+      if (head.startBin !== 0 || head === chain) continue;
+      if (chain.angles.length + head.angles.length > bins) continue;
+      const cost = ridgesContinue(chain.lastDistanceM, lastAngle, {
+        angle: head.angles[0]!,
+        distanceM: head.firstDistanceM,
+      });
+      if (cost !== null && cost < bestCost) {
+        bestCost = cost;
+        bestIndex = k;
+      }
+    }
+    if (bestIndex >= 0) {
+      const head = done[bestIndex]!;
+      chain.angles.push(...head.angles);
+      chain.lastDistanceM = head.lastDistanceM;
+      done.splice(bestIndex, 1);
+    }
+    done.push(chain);
+  }
+
+  return done
+    .filter((chain) => chain.angles.length >= RIDGE_MIN_BINS)
+    .sort((a, b) => a.startBin - b.startBin)
+    .map((chain) => ({ startBin: chain.startBin, angles: Float32Array.from(chain.angles) }));
 }
 
 /**
@@ -276,6 +461,47 @@ export function skylineScreenPoints(
     if (!p.behind) points.push({ x: p.x, y: p.y });
   }
   return points;
+}
+
+/**
+ * Projette les crêtes intermédiaires sur l'écran : une polyligne par crête
+ * (ou par morceau de crête dans le champ — une crête qui sort du cadre puis y
+ * revient donne deux morceaux). Mêmes conventions que `skylineScreenPoints`.
+ */
+export function ridgeScreenPolylines(
+  ridges: RidgeLine[],
+  demStepDeg: number,
+  view: ViewGeometry,
+): Array<Array<{ x: number; y: number }>> {
+  const tanV = Math.tan(degToRad(view.fovDeg) / 2);
+  const tanH = tanV * (view.width / Math.max(1, view.height));
+  const maxAzRelDeg = radToDeg(Math.atan(tanH)) + 2 * demStepDeg;
+  const bins = Math.round(360 / demStepDeg);
+  const polylines: Array<Array<{ x: number; y: number }>> = [];
+
+  for (const ridge of ridges) {
+    let current: Array<{ x: number; y: number }> = [];
+    const flush = (): void => {
+      if (current.length >= 2) polylines.push(current);
+      current = [];
+    };
+    for (let k = 0; k < ridge.angles.length; k++) {
+      const azimuth = ((ridge.startBin + k) % bins) * demStepDeg;
+      const azRel = ((((azimuth - view.headingDeg) % 360) + 540) % 360) - 180;
+      if (Math.abs(azRel) > maxAzRelDeg) {
+        flush();
+        continue;
+      }
+      const p = projectToScreen(azimuth, ridge.angles[k]!, view);
+      if (p.behind) {
+        flush();
+        continue;
+      }
+      current.push({ x: p.x, y: p.y });
+    }
+    flush();
+  }
+  return polylines;
 }
 
 export interface SkylineView {

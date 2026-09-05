@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { degToRad, radToDeg } from '../geo';
 import type { ElevationSampler } from '../visibility';
 import {
+  computeDemProfile,
   computeDemSkyline,
   detectImageSkyline,
   isMatchReliable,
   matchSkyline,
   pixelToAngles,
+  ridgeScreenPolylines,
   skylineScreenPoints,
   type DetectedSkyline,
   type SkylineMatch,
@@ -62,6 +64,117 @@ describe('computeDemSkyline', () => {
     const coarse = computeDemSkyline(ridge, 10, { stepDeg: 90, stepM: 150 });
     expect(Math.abs(radToDeg(fine[0]!) - expected)).toBeLessThan(0.1);
     expect(radToDeg(coarse[0]!)).toBeLessThan(expected - 5);
+  });
+});
+
+describe('computeDemProfile (crêtes intermédiaires)', () => {
+  // Muraille proche (500 m, à 5 km, ±10° autour du nord) devant une haute
+  // muraille lointaine (3000 m, à 20 km, ±11°) : la proche est une crête
+  // vue devant la lointaine, qui fait l'horizon.
+  const twoWalls: ElevationSampler = (east, north) => {
+    if (north >= 4_900 && north <= 5_100 && Math.abs(east) < 900) return 500;
+    if (north >= 19_000 && north <= 21_000 && Math.abs(east) < 4_000) return 3000;
+    return 0;
+  };
+  const nearWall: ElevationSampler = (east, north) =>
+    north >= 4_900 && north <= 5_100 && Math.abs(east) < 900 ? 500 : 0;
+
+  it("trace la crête proche devant l'horizon lointain, d'un seul trait à travers le nord", () => {
+    const { skyline, ridges } = computeDemProfile(twoWalls, 10, { stepDeg: 1 });
+    expect(radToDeg(skyline[0]!)).toBeGreaterThan(8); // la muraille lointaine
+    expect(ridges).toHaveLength(1);
+    const ridge = ridges[0]!;
+    // Recousue à la couture 360°→0° : commence vers 350° et couvre ~21 pas.
+    expect(ridge.startBin).toBeGreaterThanOrEqual(349);
+    expect(ridge.startBin).toBeLessThanOrEqual(351);
+    expect(ridge.angles.length).toBeGreaterThanOrEqual(19);
+    expect(ridge.angles.length).toBeLessThanOrEqual(23);
+    const expected = radToDeg(Math.atan2(500 - 10, 4_900));
+    for (const angle of ridge.angles)
+      expect(Math.abs(radToDeg(angle) - expected)).toBeLessThan(0.3);
+  });
+
+  it("l'horizon seul ne fait pas de crête", () => {
+    const { ridges } = computeDemProfile(nearWall, 10, { stepDeg: 1 });
+    expect(ridges).toHaveLength(0);
+  });
+
+  it("une ondulation sur un versant face à l'œil n'est pas une crête", () => {
+    // Rampe montante de 1 à 8 km, creusée de 5 m sur 50 m à 4 km : le maximum
+    // est repris 50 m plus loin — pas de saut de profondeur.
+    const ramp: ElevationSampler = (_e, north) => {
+      if (north < 1_000 || north > 8_000) return 0;
+      return 0.2 * north - (north >= 4_000 && north <= 4_050 ? 5 : 0);
+    };
+    const { ridges } = computeDemProfile(ramp, 10, { stepDeg: 90 });
+    expect(ridges).toHaveLength(0);
+  });
+
+  it("la plaine qui s'enfonce sous la courbure devant un massif lointain n'est pas une crête", () => {
+    // Depuis 10 m au-dessus d'une plaine, le sol « disparaît » vers 13 km ; le
+    // massif qui se lève derrière ne doit pas tracer un trait à −0,1°.
+    const farOnly: ElevationSampler = (east, north) =>
+      north >= 19_000 && north <= 21_000 && Math.abs(east) < 4_000 ? 3000 : 0;
+    const { ridges } = computeDemProfile(farOnly, 10, { stepDeg: 1 });
+    expect(ridges).toHaveLength(0);
+  });
+
+  it('ignore une crête trop courte en azimut', () => {
+    const sliver: ElevationSampler = (east, north) => {
+      if (north >= 4_900 && north <= 5_100 && Math.abs(east) < 60) return 500; // ~1,4°
+      if (north >= 19_000 && north <= 21_000 && Math.abs(east) < 4_000) return 3000;
+      return 0;
+    };
+    const { ridges } = computeDemProfile(sliver, 10, { stepDeg: 1 });
+    expect(ridges).toHaveLength(0);
+  });
+
+  it('sépare deux crêtes étagées devant le même horizon', () => {
+    const threeWalls: ElevationSampler = (east, north) => {
+      if (north >= 2_900 && north <= 3_100 && Math.abs(east) < 600) return 200;
+      if (north >= 4_900 && north <= 5_100 && Math.abs(east) < 900) return 500;
+      if (north >= 19_000 && north <= 21_000 && Math.abs(east) < 4_000) return 3000;
+      return 0;
+    };
+    const { ridges } = computeDemProfile(threeWalls, 10, { stepDeg: 1 });
+    expect(ridges).toHaveLength(2);
+    const angles = ridges.map((r) => radToDeg(r.angles[0]!)).sort((a, b) => a - b);
+    expect(Math.abs(angles[0]! - radToDeg(Math.atan2(190, 2_900)))).toBeLessThan(0.3);
+    expect(Math.abs(angles[1]! - radToDeg(Math.atan2(490, 4_900)))).toBeLessThan(0.3);
+  });
+
+  it('le profil d’horizon est inchangé par la collecte des crêtes', () => {
+    const { skyline } = computeDemProfile(twoWalls, 10, { stepDeg: 2 });
+    expect(Array.from(computeDemSkyline(twoWalls, 10, { stepDeg: 2 }))).toEqual(
+      Array.from(skyline),
+    );
+  });
+});
+
+describe('ridgeScreenPolylines', () => {
+  const view = { headingDeg: 0, pitchDeg: 0, fovDeg: 60, width: 1000, height: 1000 };
+  // Crête à 5° de 350° à 10° (21 pas de 1°), à cheval sur la couture.
+  const ridge = { startBin: 350, angles: new Float32Array(21).fill(degToRad(5)) };
+
+  it('projette une crête dans le champ en une polyligne au-dessus du centre', () => {
+    const lines = ridgeScreenPolylines([ridge], 1, view);
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line.length).toBe(21);
+    for (let i = 1; i < line.length; i++) expect(line[i]!.x).toBeGreaterThan(line[i - 1]!.x);
+    for (const p of line) expect(p.y).toBeLessThan(500);
+  });
+
+  it('ne trace rien quand la crête est derrière', () => {
+    expect(ridgeScreenPolylines([ridge], 1, { ...view, headingDeg: 180 })).toHaveLength(0);
+  });
+
+  it('coupe une crête au bord du champ', () => {
+    // Cap 40° : seuls les pas proches de 10° (bord gauche du champ) restent.
+    const lines = ridgeScreenPolylines([ridge], 1, { ...view, headingDeg: 40 });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.length).toBeLessThan(21);
+    expect(lines[0]!.length).toBeGreaterThanOrEqual(2);
   });
 });
 

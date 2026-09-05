@@ -89,6 +89,13 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       projetée avec les mêmes conventions de caméra que les étiquettes (`skylineScreenPoints`,
       testé) — repère visuel pour le recalage manuel et lecture directe de ce que « pense »
       le recalage automatique.
+- [x] Crêtes intermédiaires dans le mode Viser : la marche de rayon relève, en plus de
+      l'horizon, chaque silhouette de relief vue devant un relief plus lointain (saut de
+      profondeur ≥ 30 % et creux ≥ 0,5° derrière la crête, ce qui écarte les ondulations
+      du DEM et la plaine qui s'enfonce sous la courbure) ; les crêtes des azimuts voisins
+      sont chaînées par continuité de distance en polylignes (`computeDemProfile`, testé,
+      couture 360° recousue), tracées plus fines que l'horizon dans le SVG et la capture
+      de débogage. Mesuré sur Chamonix (tuiles réelles) : 27 crêtes, la plus longue sur 76°.
 - [x] FOV caméra mesuré par l'horizon (le web ne l'expose pas) : recherche à trois
       dimensions cap × assiette × FOV (40–80°, grossier→fin) dans matchSkyline, a priori
       très doux vers le FOV courant (surface de coût plate : le cap absorbe une partie de

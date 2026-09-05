@@ -15,7 +15,7 @@ import { stitchBlock, tileBlockAround, type TileBlock } from '../lib/terrain/blo
 import { GeoHeightField } from '../lib/terrain/heightField';
 import { decodeTerrariumRgba } from '../lib/terrain/terrarium';
 import { terrariumTileUrl } from '../lib/terrain/tiles';
-import { computeDemSkyline } from '../lib/viser/skyline';
+import { computeDemProfile, type RidgeLine } from '../lib/viser/skyline';
 import type { ElevationSampler } from '../lib/visibility';
 import { decodePng } from './png';
 
@@ -103,6 +103,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : tuiles réelles → hori
   let sample: ElevationSampler;
   let eyeElevation = 0;
   let skyline: Float32Array;
+  let ridges: RidgeLine[];
 
   beforeAll(async () => {
     mkdirSync(CACHE_DIR, { recursive: true });
@@ -113,10 +114,12 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : tuiles réelles → hori
     expect(inner.contains(CHAMONIX)).toBe(true);
     eyeElevation = inner.elevationAt(CHAMONIX) + 1.7;
     sample = makeBlendedSampler(CHAMONIX, inner, outer, INNER.radiusM);
-    skyline = computeDemSkyline(sample, eyeElevation, {
+    const profile = computeDemProfile(sample, eyeElevation, {
       stepDeg: SKYLINE_STEP_DEG,
       maxDistanceM: SKYLINE_MAX_M,
     });
+    skyline = profile.skyline;
+    ridges = profile.ridges;
   }, 300_000);
 
   /** Lecture interpolée du profil (°), même convention que demAngleDeg. */
@@ -136,6 +139,22 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : tuiles réelles → hori
   it('produit un profil fini sur 360°', () => {
     expect(skyline).toHaveLength(Math.round(360 / SKYLINE_STEP_DEG));
     for (const angle of skyline) expect(Number.isFinite(angle)).toBe(true);
+  });
+
+  it('trace des crêtes intermédiaires en nombre raisonnable, toutes sous l’horizon', () => {
+    // Depuis la vallée de Chamonix, les versants étagés donnent des dizaines de
+    // crêtes devant l'horizon — pas zéro (relief plat) ni des centaines (bruit).
+    expect(ridges.length).toBeGreaterThan(10);
+    expect(ridges.length).toBeLessThan(300);
+    const bins = skyline.length;
+    for (const ridge of ridges) {
+      expect(ridge.angles.length).toBeGreaterThanOrEqual(4);
+      for (let k = 0; k < ridge.angles.length; k++) {
+        const angle = ridge.angles[k]!;
+        expect(Number.isFinite(angle)).toBe(true);
+        expect(angle).toBeLessThanOrEqual(skyline[(ridge.startBin + k) % bins]! + 1e-6);
+      }
+    }
   });
 
   for (const summit of SUMMITS) {

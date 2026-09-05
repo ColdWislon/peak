@@ -1,5 +1,6 @@
 import type { LatLon } from '../geo';
 import type { GeoHeightFieldData } from '../terrain/heightField';
+import type { RidgeLine } from '../viser/skyline';
 
 /** Messages échangés avec le worker de visibilité. */
 
@@ -28,6 +29,8 @@ export interface VisibilityResponse {
   sights: PeakSight[];
   /** Profil d'horizon (rad par bin d'azimut), si demandé. */
   skyline: Float32Array | null;
+  /** Crêtes intermédiaires (silhouettes devant l'horizon), si demandé. */
+  ridges: RidgeLine[] | null;
 }
 
 /** Résultat par sommet : visibilité et géométrie locale prête pour l'affichage. */

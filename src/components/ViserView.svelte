@@ -29,7 +29,9 @@
     detectImageSkyline,
     isMatchReliable,
     matchSkyline,
+    ridgeScreenPolylines,
     skylineScreenPoints,
+    type RidgeLine,
   } from '../lib/viser/skyline';
   import { coverCrop, frameShape, screenFovDeg, shortSideFovDeg } from '../lib/viser/videoView';
   import type {
@@ -93,6 +95,10 @@
   let horizonPoints = $state('');
   /** Mêmes points, en nombres : la capture de débogage les redessine au canvas. */
   let horizonScreen: Array<{ x: number; y: number }> = [];
+  /** Crêtes intermédiaires (silhouettes devant l'horizon) : profil et polylignes. */
+  let demRidges: RidgeLine[] = [];
+  let ridgeLines = $state<string[]>([]);
+  let ridgeScreen: Array<Array<{ x: number; y: number }>> = [];
   let viewSize = $state({ w: 1, h: 1 });
   let calibrating = $state(false);
   let calibMessage = $state<string | null>(null);
@@ -179,10 +185,16 @@
       if (demSkyline) {
         horizonScreen = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view);
         horizonPoints = horizonScreen.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+        ridgeScreen = ridgeScreenPolylines(demRidges, SKYLINE_STEP_DEG, view);
+        ridgeLines = ridgeScreen.map((line) =>
+          line.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '),
+        );
         viewSize = { w: view.width, h: view.height };
       } else {
         horizonScreen = [];
         horizonPoints = '';
+        ridgeScreen = [];
+        ridgeLines = [];
       }
     });
   }
@@ -236,11 +248,13 @@
     worker.onmessage = (event: MessageEvent<VisibilityResponse>) => {
       sights = event.data.sights;
       demSkyline = event.data.skyline;
+      demRidges = event.data.ridges ?? [];
       candidates = toCandidates(sights, peaks, eyeElevation, settings.names);
       peaksStatus = candidates.length > 0 ? 'ok' : 'noneVisible';
       logDebug('viser:visibilite', {
         visibles: candidates.length,
         horizonCalcule: demSkyline !== null,
+        cretes: demRidges.length,
       });
       relayout();
     };
@@ -494,23 +508,31 @@
   /* Capture de débogage : donner à voir ce que la caméra voit vraiment.       */
   /* ----------------------------------------------------------------------- */
 
-  /** Trace l'horizon calculé sur l'image (mêmes points que la polyligne SVG). */
+  /** Trace l'horizon calculé et les crêtes sur l'image (mêmes points que le SVG). */
   function drawHorizon(ctx: CanvasRenderingContext2D, scale: number): void {
     if (horizonScreen.length < 2) return;
     ctx.save();
     ctx.strokeStyle = '#ff453a'; // même rouge que l'overlay écran
-    ctx.lineWidth = Math.max(1.5, 2 * scale);
     ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgb(0 0 0 / 60%)';
     ctx.shadowBlur = 3 * scale;
-    ctx.beginPath();
-    horizonScreen.forEach((point, i) => {
-      const x = point.x * scale;
-      const y = point.y * scale;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+    const trace = (points: Array<{ x: number; y: number }>): void => {
+      ctx.beginPath();
+      points.forEach((point, i) => {
+        const x = point.x * scale;
+        const y = point.y * scale;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    };
+    // Crêtes plus fines et plus discrètes que l'horizon, comme à l'écran.
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = Math.max(1, 1.2 * scale);
+    for (const line of ridgeScreen) trace(line);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(1.5, 2 * scale);
+    trace(horizonScreen);
     ctx.restore();
   }
 
@@ -643,6 +665,7 @@
       zoom: Number(zoom.toFixed(2)),
       capteurs: aimInfo.sensors,
       horizonTrace: aimInfo.horizon,
+      cretesTracees: ridgeScreen.length,
       statutSommets: peaksStatus,
       sommets: peaks.length,
       visibles: candidates.length,
@@ -876,6 +899,9 @@
       preserveAspectRatio="none"
       aria-hidden="true"
     >
+      {#each ridgeLines as points}
+        <polyline class="ridge" {points} />
+      {/each}
       <polyline points={horizonPoints} />
     </svg>
   {/if}
@@ -984,6 +1010,12 @@
     stroke-linejoin: round;
     opacity: 0.85;
     filter: drop-shadow(0 0 3px rgb(0 0 0 / 60%));
+  }
+
+  /* Crêtes intermédiaires : même rouge, plus fin et plus discret que l'horizon. */
+  .horizon .ridge {
+    stroke-width: 1;
+    opacity: 0.6;
   }
 
   .calibrate {

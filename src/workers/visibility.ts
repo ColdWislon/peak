@@ -1,7 +1,7 @@
 import { localEastNorth } from '../lib/geo';
 import { makeBlendedSampler } from '../lib/panorama/sampler';
 import { deserializeGeoHeightField } from '../lib/terrain/heightField';
-import { computeDemSkyline } from '../lib/viser/skyline';
+import { computeDemProfile } from '../lib/viser/skyline';
 import { isVisible } from '../lib/visibility';
 import type { PeakSight, VisibilityRequest, VisibilityResponse } from '../lib/visibility/protocol';
 
@@ -38,12 +38,18 @@ scope.onmessage = (event) => {
 
   // Le plafond du relief chargé borne ce qu'un rayon peut encore rencontrer :
   // la marche s'arrête dès que rien au-delà ne peut dépasser l'horizon trouvé.
-  const skyline = skylineStepDeg
-    ? computeDemSkyline(sample, eyeElevation, {
+  const profile = skylineStepDeg
+    ? computeDemProfile(sample, eyeElevation, {
         stepDeg: skylineStepDeg,
         maxElevationM: Math.max(0, innerField.field.max(), outerField.field.max()),
       })
     : null;
 
-  scope.postMessage({ sights, skyline }, skyline ? [skyline.buffer] : []);
+  const transfer: Transferable[] = profile
+    ? [profile.skyline.buffer, ...profile.ridges.map((ridge) => ridge.angles.buffer)]
+    : [];
+  scope.postMessage(
+    { sights, skyline: profile?.skyline ?? null, ridges: profile?.ridges ?? null },
+    transfer,
+  );
 };
