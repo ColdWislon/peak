@@ -1,5 +1,5 @@
 import { apparentElevationAngle, degToRad, normalizeBearing, radToDeg } from '../geo';
-import { apparentImportance, peakDisplayName, type NamePreference, type Peak } from '../peaks';
+import { peakDisplayName, peakImportance, type NamePreference, type Peak } from '../peaks';
 import type { Units } from '../settings';
 import type { PeakSight } from '../visibility/protocol';
 
@@ -40,6 +40,12 @@ export interface PlacedLabel {
   /** Point d'ancrage écran (px) : la pointe du sommet. */
   x: number;
   y: number;
+  /**
+   * Surélévation (px) de la boîte au-dessus de sa place normale, quand une
+   * étiquette plus importante occupe déjà celle-ci : le trait de rappel
+   * s'allonge d'autant. 0 pour une étiquette posée à sa place.
+   */
+  lift: number;
 }
 
 /** Joint les résultats du worker aux sommets et prépare les candidats triés. */
@@ -63,14 +69,12 @@ export function toCandidates(
       distanceM: sight.distanceM,
       azimuthDeg: normalizeBearing(radToDeg(Math.atan2(sight.east, sight.north))),
       elevAngleRad: apparentElevationAngle(sight.distanceM, sight.elevation - eyeElevation),
-      // Priorité de placement : la même importance apparente qui a servi à
-      // choisir les sommets — un sommet proche qui domine la vue passe devant
-      // un géant lointain quand leurs étiquettes se chevauchent.
-      score: apparentImportance(
-        { elevation: sight.elevation, prominence: peak.prominence },
-        sight.distanceM,
-        eyeElevation,
-      ),
+      // Priorité de placement : l'importance ABSOLUE (altitude + proéminence),
+      // pas l'apparente qui sert à choisir les sommets. Quand les étiquettes se
+      // chevauchent, c'est le géant lointain qui garde sa place — un modeste
+      // sommet proche, plus haut à l'écran, ne doit pas le faire disparaître ;
+      // lui est surélevé (voir placeLabels), pas supprimé.
+      score: peakImportance({ elevation: sight.elevation, prominence: peak.prominence }),
     });
   }
 
@@ -121,11 +125,23 @@ export function projectToScreen(
   };
 }
 
-/** Boîte estimée d'une étiquette (nom + ligne d'infos) ancrée au-dessus du point. */
-function labelBox(candidate: LabelCandidate, x: number, y: number) {
+/** Hauteur estimée d'une boîte (nom + ligne d'infos) et trait de rappel minimal (px). */
+const LABEL_HEIGHT = 34;
+const LEADER_MIN = 12;
+/** Écart entre deux boîtes empilées (px). */
+const STACK_GAP = 4;
+/** Niveaux d'empilement tentés au-dessus de la place normale (0 = à sa place). */
+const MAX_STACK_LEVELS = 3;
+
+/** Boîte estimée d'une étiquette ancrée au-dessus du point, surélevée de `lift`. */
+function labelBox(candidate: LabelCandidate, x: number, y: number, lift: number) {
   const width = Math.max(64, candidate.name.length * 7.2 + 16);
-  const height = 34;
-  return { left: x - width / 2, top: y - height - 12, width, height };
+  return {
+    left: x - width / 2,
+    top: y - LABEL_HEIGHT - LEADER_MIN - lift,
+    width,
+    height: LABEL_HEIGHT,
+  };
 }
 
 function overlaps(
@@ -142,7 +158,11 @@ function overlaps(
 
 /**
  * Place les étiquettes visibles à l'écran : projection, rejet hors cadre,
- * puis sélection gloutonne par score décroissant sans chevauchement.
+ * puis placement glouton par score décroissant (les candidats arrivent triés).
+ * Une étiquette dont la place est prise n'est pas jetée : elle est surélevée
+ * d'un ou plusieurs niveaux, trait de rappel allongé, jusqu'à trouver un
+ * espace libre — un petit sommet devant un géant garde son nom sans lui
+ * voler le sien. Faute de place sous le bord haut de l'écran, elle disparaît.
  */
 export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): PlacedLabel[] {
   const placed: PlacedLabel[] = [];
@@ -161,18 +181,24 @@ export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): P
       continue;
     }
 
-    const box = labelBox(candidate, point.x, point.y);
-    if (boxes.some((b) => overlaps(b, box))) continue;
+    for (let level = 0; level < MAX_STACK_LEVELS; level++) {
+      const lift = level * (LABEL_HEIGHT + STACK_GAP);
+      const box = labelBox(candidate, point.x, point.y, lift);
+      if (box.top < 0) break; // plus de place au-dessus : on renonce
+      if (boxes.some((b) => overlaps(b, box))) continue;
 
-    boxes.push(box);
-    placed.push({
-      id: candidate.id,
-      name: candidate.name,
-      elevation: candidate.elevation,
-      distanceM: candidate.distanceM,
-      x: point.x,
-      y: point.y,
-    });
+      boxes.push(box);
+      placed.push({
+        id: candidate.id,
+        name: candidate.name,
+        elevation: candidate.elevation,
+        distanceM: candidate.distanceM,
+        x: point.x,
+        y: point.y,
+        lift,
+      });
+      break;
+    }
   }
 
   return placed;

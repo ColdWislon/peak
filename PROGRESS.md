@@ -96,6 +96,13 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       sont chaînées par continuité de distance en polylignes (`computeDemProfile`, testé,
       couture 360° recousue), tracées plus fines que l'horizon dans le SVG et la capture
       de débogage. Mesuré sur Chamonix (tuiles réelles) : 27 crêtes, la plus longue sur 76°.
+- [x] Étiquettes : un petit sommet ne cache plus un gros. La priorité de placement est
+      l'importance absolue (altitude + 2 × proéminence, `peakImportance`) et non plus la
+      hauteur apparente — qui reste le critère de CHOIX des sommets (`topPeaksFrom`).
+      Une étiquette dont la place est prise n'est plus jetée : elle est surélevée (jusqu'à
+      trois niveaux, trait de rappel allongé, `lift` dans `PlacedLabel`), à l'écran comme
+      dans la capture de débogage ; elle disparaît seulement faute de place sous le bord
+      haut. Testé (priorité, empilement, renoncement en haut d'écran).
 - [x] FOV caméra mesuré par l'horizon (le web ne l'expose pas) : recherche à trois
       dimensions cap × assiette × FOV (40–80°, grossier→fin) dans matchSkyline, a priori
       très doux vers le FOV courant (surface de coût plate : le cap absorbe une partie de

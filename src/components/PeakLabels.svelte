@@ -15,7 +15,7 @@
   {#each labels as label (label.id)}
     <button
       class="label"
-      style="left: {label.x}px; top: {label.y}px"
+      style="left: {label.x}px; top: {label.y}px; --lift: {label.lift}px"
       onclick={() => onselect?.(label)}
     >
       <span class="name">{label.name}</span>
@@ -35,11 +35,15 @@
     inset: 0;
     overflow: hidden;
     pointer-events: none;
+    /* Contexte d'empilement propre : les traits de rappel (z-index négatif)
+       passent derrière les boîtes voisines, jamais derrière la vue. */
+    isolation: isolate;
   }
 
   .label {
     position: absolute;
-    transform: translate(-50%, calc(-100% - 14px));
+    /* Surélevée quand une étiquette plus importante occupe sa place. */
+    transform: translate(-50%, calc(-100% - 14px - var(--lift, 0px)));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -57,14 +61,15 @@
     text-shadow: 0 1px 3px rgb(0 0 0 / 55%);
   }
 
-  /* Trait de rappel vers la pointe du sommet. */
+  /* Trait de rappel vers la pointe du sommet, allongé de la surélévation. */
   .label::after {
     content: '';
     position: absolute;
     top: 100%;
     left: 50%;
+    z-index: -1;
     width: 1px;
-    height: 14px;
+    height: calc(14px + var(--lift, 0px));
     background: color-mix(in srgb, var(--text) 65%, transparent);
   }
 

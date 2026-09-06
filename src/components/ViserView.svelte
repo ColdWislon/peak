@@ -546,23 +546,25 @@
     for (const label of labels) {
       const x = label.x * scale;
       const y = label.y * scale;
+      // Même surélévation qu'à l'écran : le trait s'allonge, la boîte monte.
+      const leader = (14 + label.lift) * scale;
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
       ctx.lineWidth = Math.max(1, scale);
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x, y - 14 * scale);
+      ctx.lineTo(x, y - leader);
       ctx.stroke();
       const text = label.name;
       const width = ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
       ctx.fillRect(
         x - width / 2 - 4 * scale,
-        y - 14 * scale - font - 4 * scale,
+        y - leader - font - 4 * scale,
         width + 8 * scale,
         font + 6 * scale,
       );
       ctx.fillStyle = '#fff';
-      ctx.fillText(text, x, y - 14 * scale - 2 * scale);
+      ctx.fillText(text, x, y - leader - 2 * scale);
     }
     ctx.restore();
   }

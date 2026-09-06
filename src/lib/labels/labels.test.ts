@@ -64,11 +64,56 @@ describe('projectToScreen', () => {
 });
 
 describe('placeLabels', () => {
-  it('écarte les doublons au même endroit et garde le meilleur score', () => {
+  it('surélève le second quand deux étiquettes tombent au même endroit, sans le jeter', () => {
     const labels = placeLabels(
       [
         candidate({ id: 1, score: 3000, elevation: 3000 }),
         candidate({ id: 2, score: 1000, elevation: 1000, azimuthDeg: 0.2 }),
+      ],
+      view,
+    );
+    expect(labels.map((l) => l.id)).toEqual([1, 2]);
+    expect(labels[0]!.lift).toBe(0);
+    expect(labels[1]!.lift).toBeGreaterThan(30);
+  });
+
+  it("le plus important garde sa place même s'il arrive plus bas à l'écran", () => {
+    // Petit sommet proche, plus haut dans le cadre ; géant lointain juste
+    // dessous. Les candidats arrivent triés par score (toCandidates) : le
+    // géant est posé à sa place, le petit est surélevé au-dessus de lui.
+    const labels = placeLabels(
+      [
+        candidate({ id: 1, name: 'Mont Blanc', score: 14_200, elevAngleRad: 0.05 }),
+        candidate({ id: 2, name: 'Bosse', score: 1_500, elevAngleRad: 0.08, azimuthDeg: 0.5 }),
+      ],
+      view,
+    );
+    expect(labels.map((l) => l.id)).toEqual([1, 2]);
+    expect(labels[0]!.lift).toBe(0);
+    expect(labels[1]!.lift).toBeGreaterThan(0);
+    // La boîte surélevée du petit est bien AU-DESSUS de celle du géant.
+    const top = (l: (typeof labels)[number]) => l.y - l.lift;
+    expect(top(labels[1]!)).toBeLessThan(top(labels[0]!) - 30);
+  });
+
+  it('empile jusqu’à trois niveaux, puis renonce', () => {
+    const labels = placeLabels(
+      [1, 2, 3, 4].map((id) => candidate({ id, score: 5000 - id, azimuthDeg: id * 0.1 })),
+      view,
+    );
+    expect(labels.map((l) => l.id)).toEqual([1, 2, 3]);
+    const lifts = labels.map((l) => l.lift);
+    expect(lifts[0]).toBe(0);
+    expect(lifts[1]).toBeGreaterThan(lifts[0]!);
+    expect(lifts[2]).toBeGreaterThan(lifts[1]!);
+  });
+
+  it('renonce plutôt que de sortir par le haut de l’écran', () => {
+    // Sommets près du bord haut (élévation ~26° pour un champ de 60°).
+    const labels = placeLabels(
+      [
+        candidate({ id: 1, score: 3000, elevAngleRad: 0.46 }),
+        candidate({ id: 2, score: 1000, elevAngleRad: 0.46, azimuthDeg: 0.2 }),
       ],
       view,
     );
@@ -81,6 +126,7 @@ describe('placeLabels', () => {
       view,
     );
     expect(labels).toHaveLength(2);
+    expect(labels.every((l) => l.lift === 0)).toBe(true);
   });
 
   it('ignore ce qui est hors cadre ou derrière', () => {
@@ -127,11 +173,36 @@ describe('toCandidates', () => {
     expect(candidates[0]!.name).toBe('Mont Blanc');
     expect(candidates[0]!.azimuthDeg).toBeCloseTo(0, 6);
     expect(candidates[0]!.elevAngleRad).toBeGreaterThan(0);
-    // Score = importance APPARENTE : hauteur vue + moitié du relief propre vu.
-    expect(candidates[0]!.score).toBeCloseTo(
-      candidates[0]!.elevAngleRad + 0.5 * Math.atan(4696 / 20_000),
-      6,
+    // Score = importance ABSOLUE (altitude + 2 × proéminence) : la priorité
+    // de placement, pas le choix des sommets.
+    expect(candidates[0]!.score).toBe(4808 + 2 * 4696);
+  });
+
+  it('un petit sommet proche passe APRÈS un géant lointain', () => {
+    const withHill: Peak[] = [
+      ...peaks,
+      {
+        id: 3,
+        name: 'Bosse',
+        nameFr: null,
+        lat: 0,
+        lon: 0,
+        elevation: 1500,
+        prominence: 100,
+        wikidata: null,
+      },
+    ];
+    const seen: PeakSight[] = [
+      ...sights,
+      { id: 3, visible: true, distanceM: 2_000, elevation: 1500, east: 0, north: 2_000 },
+    ];
+    const candidates = toCandidates(seen, withHill, 1000);
+    // La bosse est bien plus haute dans le cadre que le Mont Blanc…
+    expect(candidates.find((c) => c.id === 3)!.elevAngleRad).toBeGreaterThan(
+      candidates.find((c) => c.id === 1)!.elevAngleRad,
     );
+    // …mais c'est le Mont Blanc qui a la priorité de placement.
+    expect(candidates.map((c) => c.id)).toEqual([1, 3]);
   });
 
   it('respecte la préférence de nom local', () => {
