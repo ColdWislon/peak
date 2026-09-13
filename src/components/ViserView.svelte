@@ -43,11 +43,18 @@
   import { AimFilter } from '../lib/viser/aimFilter';
   import { shouldMoveViewpoint, type PositionFix } from '../lib/viser/follow';
   import {
+    addFovSample,
+    FOV_MIN_SPREAD_DEG,
+    fovSampleWeight,
+    smoothedFovDeg,
+  } from '../lib/viser/optics';
+  import {
     detectImageSkyline,
     isMatchReliable,
     matchSkyline,
     ridgeScreenPolylines,
     skylineScreenPoints,
+    skylineSpreadDeg,
     type RidgeLine,
   } from '../lib/viser/skyline';
   import { coverCrop, frameShape, screenFovDeg, shortSideFovDeg } from '../lib/viser/videoView';
@@ -501,7 +508,10 @@
       // détecteur alors que l'utilisateur cadre un horizon propre — cf. rapport
       // terrain.
       const crop = coverCrop(video.videoWidth, video.videoHeight, viewW, viewH, zoom);
-      const width = 240;
+      // 320 colonnes plutôt que 240 : chaque ligne de l'image réduite vaut
+      // ~2,6 px de vue au lieu de 3,5 — l'amplitude de la crête, donc le
+      // FOV, se mesure d'autant mieux.
+      const width = 320;
       const height = Math.max(60, Math.round((width * viewH) / Math.max(1, viewW)));
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -526,23 +536,60 @@
         // vues à travers la découpe courante.
         fovSearch: { minDeg: boundFov(SHORT_FOV_MIN_DEG), maxDeg: boundFov(SHORT_FOV_MAX_DEG) },
       });
-      // L'optique mesurée n'est adoptée que sur un alignement excellent et non
+      // L'optique mesurée n'est adoptée que sur un alignement excellent, non
       // borné (surface de coût plate en FOV, optimum en butée = valeur non
-      // mesurée).
+      // mesurée) ET une crête assez ample : sur une ligne presque droite,
+      // étirer (FOV) ou décaler (cap) laissent le même résidu — la mesure
+      // flottait de 41 à 53° pour le même capteur (rapport terrain n° 10).
+      const spreadDeg = skylineSpreadDeg(detected, screenFov);
       const adoptFov =
         estimate !== null &&
         estimate.maeDeg <= 0.8 &&
         !estimate.fovAtBound &&
+        spreadDeg >= FOV_MIN_SPREAD_DEG &&
         isMatchReliable(estimate);
+      // Optique en usage après ce recalage : la médiane pondérée de toutes les
+      // mesures adoptées (lib/viser/optics), pas la dernière seule.
+      let shortFovInUse = shortFov();
+      if (adoptFov && estimate) {
+        const measured = shortSideFovDeg(
+          estimate.fovDeg,
+          video.videoWidth,
+          video.videoHeight,
+          viewW,
+          viewH,
+          zoom,
+        );
+        const sample = {
+          fovDeg: Math.min(100, Math.max(25, Math.round(measured * 2) / 2)),
+          weight: fovSampleWeight(spreadDeg, estimate.maeDeg),
+        };
+        // Un étalonnage d'une autre FORME de flux ne se mélange pas : on
+        // repart d'un historique neuf (l'aspect est mémorisé avec).
+        const sameShape = storedFovUsable();
+        settings.cameraFovSamples = addFovSample(
+          sameShape ? settings.cameraFovSamples : [],
+          sample,
+        );
+        settings.cameraShortFovDeg = smoothedFovDeg(settings.cameraFovSamples);
+        settings.cameraStreamAspect = Number((streamAspect() ?? 0).toFixed(3));
+        saveSettings();
+        shortFovInUse = settings.cameraShortFovDeg ?? sample.fovDeg;
+      }
       // Cap et assiette ne valent QUE pour le FOV avec lequel ils ont été
       // trouvés : appliquer ceux d'un FOV qu'on écarte, c'est corriger la visée
       // pour une autre optique que celle qui dessine l'écran — l'horizon collait
-      // au bord et décrochait de 3° au centre (rapport terrain n° 4). Quand la
-      // mesure n'est pas adoptée, on refait la mise en correspondance au FOV
-      // courant, seul en usage.
-      const match = adoptFov
-        ? estimate
-        : matchSkyline(detected, view, demSkyline, { demStepDeg: SKYLINE_STEP_DEG });
+      // au bord et décrochait de 3° au centre (rapport terrain n° 4). La mise
+      // en correspondance est donc refaite au FOV réellement en usage : le
+      // courant si la mesure est écartée, le lissé si elle est adoptée (sauf
+      // s'il coïncide avec elle).
+      const fovInUse = boundFov(shortFovInUse);
+      const match =
+        adoptFov && estimate && Math.abs(fovInUse - estimate.fovDeg) < 0.2
+          ? estimate
+          : matchSkyline(detected, { ...view, fovDeg: fovInUse }, demSkyline, {
+              demStepDeg: SKYLINE_STEP_DEG,
+            });
       const reliable = match !== null && isMatchReliable(match);
 
       const conf = [...detected.confidence].sort((a, b) => a - b);
@@ -553,6 +600,7 @@
           max: Number(conf[conf.length - 1]?.toFixed(2)),
         },
         fovEcran: Number(screenFov.toFixed(1)),
+        amplitudeCrete: Number(spreadDeg.toFixed(2)),
         zoom: Number(zoom.toFixed(2)),
         recadrage: {
           sx: Math.round(crop.sx),
@@ -566,6 +614,8 @@
               enButee: estimate.fovAtBound,
               mae: Number.isFinite(estimate.maeDeg) ? Number(estimate.maeDeg.toFixed(3)) : null,
               adoptee: adoptFov,
+              lissee: adoptFov ? settings.cameraShortFovDeg : null,
+              mesures: settings.cameraFovSamples.length,
             }
           : null,
         resultat: match
@@ -601,28 +651,12 @@
         headingOffset = signedDeltaDeg(headingOffset + match.headingOffsetDeg);
         pitchOffset += match.pitchOffsetDeg;
         const deg = Math.round(match.headingOffsetDeg);
-        // La surface de coût est plate en FOV : on ne persiste l'optique
-        // mesurée que sur un alignement excellent, et jamais quand l'optimum
-        // bute sur une borne de recherche (valeur bornée, pas mesurée). On
-        // stocke le FOV petit côté du capteur (invariant en rotation),
-        // reconverti depuis la vue.
-        if (adoptFov) {
-          const measured = shortSideFovDeg(
-            match.fovDeg,
-            video.videoWidth,
-            video.videoHeight,
-            viewW,
-            viewH,
-            zoom,
-          );
-          settings.cameraShortFovDeg = Math.min(100, Math.max(25, Math.round(measured * 2) / 2));
-          // L'angle du petit côté dépend de la FORME du cadre : un flux 16:9 est
-          // une découpe d'un 4:3. On mémorise l'aspect avec la mesure, faute de
-          // quoi un changement de flux rendrait l'étalonnage faux en silence.
-          settings.cameraStreamAspect = Number((streamAspect() ?? 0).toFixed(3));
-          saveSettings();
+        if (adoptFov && settings.cameraShortFovDeg !== null) {
           if (lastCalibration) lastCalibration.shortFovDeg = settings.cameraShortFovDeg;
-          calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, FOV ${Math.round(settings.cameraShortFovDeg)}°)`;
+          const n = settings.cameraFovSamples.length;
+          calibMessage =
+            `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°, ` +
+            `FOV ${Math.round(settings.cameraShortFovDeg)}° · ${n} mesure${n > 1 ? 's' : ''})`;
         } else {
           calibMessage = `${fr.viser.horizonLocked} (${deg >= 0 ? '+' : ''}${deg}°)`;
         }

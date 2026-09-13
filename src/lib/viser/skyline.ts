@@ -395,6 +395,29 @@ export function detectImageSkyline(
   return { rows, confidence, width, height };
 }
 
+/**
+ * Amplitude verticale (°) de la crête détectée, sur les colonnes confiantes :
+ * ce qui contraint l'échelle de l'image, donc la mesure du FOV. Une crête
+ * plate n'apprend rien sur l'optique (étirer ou décaler une droite revient
+ * au même) ; 0 sans colonne exploitable.
+ */
+export function skylineSpreadDeg(
+  detected: DetectedSkyline,
+  viewFovDeg: number,
+  minConfidence = 0.35,
+): number {
+  let min = Infinity;
+  let max = -Infinity;
+  for (let x = 0; x < detected.width; x++) {
+    if (detected.confidence[x]! < minConfidence) continue;
+    const row = detected.rows[x]!;
+    if (row < min) min = row;
+    if (row > max) max = row;
+  }
+  if (!Number.isFinite(min)) return 0;
+  return ((max - min) / Math.max(1, detected.height)) * viewFovDeg;
+}
+
 /** Ligne de plus fort assombrissement dans ±3 lignes autour d'une transition. */
 function steepestEdge(score: Float32Array, row: number, height: number): number {
   let best = row;

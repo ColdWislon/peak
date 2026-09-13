@@ -1,4 +1,5 @@
 import type { NamePreference } from '../peaks';
+import type { FovSample } from '../viser/optics';
 
 /**
  * Réglages de l'app (backlog phase 3) : types, valeurs par défaut et
@@ -31,6 +32,11 @@ export interface Settings {
    * l'appareil, qui fait pivoter le flux, ne l'invalide pas.
    */
   cameraStreamAspect: number | null;
+  /**
+   * Mesures successives du FOV petit côté (recalages adoptés), pondérées :
+   * `cameraShortFovDeg` en est la médiane pondérée (lib/viser/optics).
+   */
+  cameraFovSamples: FovSample[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -39,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   names: 'fr',
   cameraShortFovDeg: null,
   cameraStreamAspect: null,
+  cameraFovSamples: [],
 };
 
 const QUALITIES: readonly RenderQuality[] = ['auto', 'elevee', 'eco'];
@@ -74,10 +81,34 @@ export function parseSettings(raw: string | null): Settings {
         parsed.cameraStreamAspect < 5
           ? parsed.cameraStreamAspect
           : null,
+      cameraFovSamples: parseFovSamples(parsed.cameraFovSamples),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+/** Mesures de FOV stockées : chaque entrée doit être plausible, sinon écartée. */
+function parseFovSamples(raw: unknown): FovSample[] {
+  if (!Array.isArray(raw)) return [];
+  const samples: FovSample[] = [];
+  for (const entry of raw) {
+    const fovDeg = (entry as { fovDeg?: unknown })?.fovDeg;
+    const weight = (entry as { weight?: unknown })?.weight;
+    if (
+      typeof fovDeg === 'number' &&
+      Number.isFinite(fovDeg) &&
+      fovDeg >= 25 &&
+      fovDeg <= 100 &&
+      typeof weight === 'number' &&
+      Number.isFinite(weight) &&
+      weight > 0 &&
+      weight <= 1
+    ) {
+      samples.push({ fovDeg, weight });
+    }
+  }
+  return samples.slice(-8);
 }
 
 export function serializeSettings(settings: Settings): string {

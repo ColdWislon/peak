@@ -479,3 +479,22 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       la photo réelle, colonnes sans étiquette retrouvées sur la crête). Enfin, les
       « TypeError: Load failed » en série du journal (réseau mobile) : le chargement
       relief + sommets réessaie seul toutes les 20 s en gardant les repères posés.
+- [x] Rapport terrain n° 10 (même point, recalage accepté deux fois à 100 % de colonnes
+      concordantes, « le Mont Revard est beaucoup trop décalé ») : le FOV petit côté mesuré
+      vaut 41,4° en portrait puis 46,0° en paysage à deux minutes d'écart, contre 51,5 et
+      53,5° aux sorties précédentes — pour le même capteur. Sur une crête peu accidentée (le
+      plateau des Bauges), la mise en correspondance confond une erreur de FOV et une erreur
+      de cap : étirer ou décaler une ligne presque droite laisse le même résidu. Un FOV faux
+      de 7° emmène un cap faux avec lui, et les sommets loin du centre (le Revard, à 19° du
+      centre) se décalent d'autant. Correctifs : (1) `lib/viser/optics` (testé) — historique
+      des mesures adoptées (8 au plus, persisté dans les réglages), chacune pondérée par
+      l'amplitude de la crête détectée et la qualité de l'alignement ; l'optique en usage est
+      leur MÉDIANE pondérée, insensible à une mesure aberrante ; (2) `skylineSpreadDeg`
+      (testé) — pas de mesure de FOV sur une crête de moins de 3° d'amplitude ; (3) cap et
+      assiette sont refaits avec l'optique LISSÉE (pas celle de la mesure du jour), sans quoi
+      on corrigerait la visée pour une autre optique que celle qui dessine l'écran (leçon du
+      rapport n° 4) ; (4) image d'analyse en 320 colonnes au lieu de 240 (chaque ligne vaut
+      2,6 px de vue au lieu de 3,5 : l'amplitude, donc le FOV, se mesure mieux) ; (5)
+      « Oublier l'étalonnage » efface aussi l'historique, et ⚙ annonce le nombre de mesures.
+      Le journal de calibrage note l'amplitude de crête, l'optique lissée et le nombre de
+      mesures.
