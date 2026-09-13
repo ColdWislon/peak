@@ -21,6 +21,8 @@ const LEGACY_STORE = 'overpass';
 const TTL_MS = 7 * 24 * 3600 * 1000;
 /** Cellules gardées en mémoire (au-delà, les plus anciennes repartent en IndexedDB). */
 const MAX_MEMORY_CELLS = 400;
+/** Délai d'ouverture d'IndexedDB au-delà duquel on se passe du cache persistant. */
+const OPEN_TIMEOUT_MS = 4_000;
 
 interface CellEntry {
   key: string;
@@ -31,28 +33,57 @@ interface CellEntry {
 const memory = new Map<string, CellEntry>();
 const inflight = new Map<string, Promise<void>>();
 let dbPromise: Promise<IDBDatabase> | null = null;
+/** Après un échec d'ouverture, on se passe d'IndexedDB jusqu'à cet instant. */
+let idbRetryAt = 0;
+const RETRY_AFTER_FAILURE_MS = 30_000;
 
+function idbUsable(): boolean {
+  return typeof indexedDB !== 'undefined' && Date.now() >= idbRetryAt;
+}
+
+/**
+ * Ouvre la base, sans jamais rester suspendu : une ouverture bloquée par un
+ * autre onglet (ancienne version qui garde sa connexion) ou muette (Safari
+ * au lancement) rejette au bout de `OPEN_TIMEOUT_MS`, et les sommets viennent
+ * alors du réseau comme s'il n'y avait pas de cache.
+ */
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    const timer = setTimeout(() => fail(new Error('IndexedDB ne répond pas')), OPEN_TIMEOUT_MS);
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (db.objectStoreNames.contains(LEGACY_STORE)) db.deleteObjectStore(LEGACY_STORE);
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
     };
+    request.onblocked = () => fail(new Error('IndexedDB bloquée par un autre onglet'));
     request.onsuccess = () => {
       const db = request.result;
+      if (settled) {
+        db.close(); // arrivée trop tard : on a déjà renoncé
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       db.onversionchange = () => {
         db.close();
         dbPromise = null;
       };
       resolve(db);
     };
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB inaccessible'));
+    request.onerror = () => fail(request.error ?? new Error('IndexedDB inaccessible'));
   });
   dbPromise.catch(() => {
     dbPromise = null;
+    idbRetryAt = Date.now() + RETRY_AFTER_FAILURE_MS;
   });
   return dbPromise;
 }
@@ -118,7 +149,7 @@ async function fetchCells(
   }
   const entries = [...grouped.values()];
   for (const entry of entries) remember(entry);
-  if (typeof indexedDB !== 'undefined') {
+  if (idbUsable()) {
     try {
       await writeEntries(await openDb(), entries);
     } catch {
@@ -146,7 +177,7 @@ export async function peaksAround(
   // 1. Mémoire, puis IndexedDB pour ce qui n'y est pas (périmé compris : il
   //    servira de secours si le réseau manque).
   const notInMemory = keys.filter((key) => !isFresh(memory.get(key)));
-  if (notInMemory.length > 0 && typeof indexedDB !== 'undefined') {
+  if (notInMemory.length > 0 && idbUsable()) {
     try {
       for (const entry of await readEntries(await openDb(), notInMemory)) {
         const current = memory.get(entry.key);
@@ -196,4 +227,6 @@ export async function peaksAround(
 export function resetPeaksMemoryCache(): void {
   memory.clear();
   inflight.clear();
+  dbPromise = null;
+  idbRetryAt = 0;
 }

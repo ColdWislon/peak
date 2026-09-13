@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { destinationPoint } from '../geo';
 import { peaksAround, resetPeaksMemoryCache } from './cache';
 import type { Bounds, Peak } from './index';
@@ -31,6 +31,11 @@ const WORLD = [
 
 beforeEach(() => {
   resetPeaksMemoryCache();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  delete (globalThis as { indexedDB?: unknown }).indexedDB;
 });
 
 describe('peaksAround', () => {
@@ -120,5 +125,17 @@ describe('peaksAround', () => {
     const peaks = await peaksAround(CHAMONIX, 75_000, fetcher);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(peaks).toHaveLength(3);
+  });
+
+  it('n’attend pas indéfiniment une IndexedDB muette ou bloquée', async () => {
+    vi.useFakeTimers();
+    // Ouverture qui ne déclenche jamais ni succès ni erreur (onglet bloquant, Safari).
+    (globalThis as { indexedDB?: unknown }).indexedDB = { open: () => ({}) };
+    const { fetcher } = makeWorld(WORLD);
+    const pending = peaksAround(CHAMONIX, 75_000, fetcher);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const peaks = await pending;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(peaks.map((p) => p.id).sort()).toEqual([1, 2, 3]);
   });
 });
