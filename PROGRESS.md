@@ -515,3 +515,13 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       retour au départ gratuit, requête partagée, expiration, secours périmé, erreur propagée sans
       empoisonner la suite. Vérifié dans Chromium sur le serveur de dev : migration v1→v2, 47
       cellules écrites pour Chamonix à 75 km, rechargement de page servi d'IndexedDB sans réseau.
+- [x] Retour « la carte ne marche pas » après le déploiement des cellules : rien de reproduit
+      dans le bundle de production (fond de carte et Overpass simulés dans Chromium : marqueurs
+      posés, une requête, aucun rappel après glissé), mais une ouverture d'IndexedDB pouvait
+      rester suspendue à jamais — migration v1→v2 bloquée par un onglet de l'ancienne version
+      (qui ne fermait jamais ses connexions) ou base muette au lancement (Safari) — et avec elle
+      les sommets de tous les modes. `openDb` rejette désormais sur `blocked` ou après 4 s, puis
+      on se passe d'IndexedDB pendant 30 s : les sommets viennent du réseau comme sans cache.
+      Testé (base muette → sommets en 5 s) et vérifié dans Chromium avec un onglet bloquant
+      (7 ms). Si le symptôme persiste, lire le rapport de débogage (menu ≡) — le fond de carte
+      OpenFreeMap et le relief ne sont pas touchés par ce changement.
