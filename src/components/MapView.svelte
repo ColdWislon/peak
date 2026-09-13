@@ -10,6 +10,7 @@
   import { peaksAround } from '../lib/peaks/cache';
   import { settings } from '../lib/settings/store.svelte';
   import { TERRARIUM_TILE_TEMPLATE } from '../lib/terrain/tiles';
+  import PeakCard from './PeakCard.svelte';
 
   /** Style vectoriel OpenFreeMap (gratuit, sans clé — décision n° 4 du PLAN.md). */
   const BASEMAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -18,7 +19,14 @@
   const MAX_MARKERS = 80;
   const MAX_PEAKS_RADIUS_M = 75_000;
 
-  let { viewpoint, onteleport }: { viewpoint: LatLon; onteleport: (p: LatLon) => void } = $props();
+  let {
+    center,
+    onteleport,
+  }: {
+    /** Centre demandé : le point de vue, ou le sommet à montrer (« Voir sur la carte »). */
+    center: LatLon;
+    onteleport: (p: LatLon) => void;
+  } = $props();
 
   let container: HTMLDivElement;
   let map: LibreMap | undefined;
@@ -58,17 +66,17 @@
       clearMarkers();
       return;
     }
-    const center = map.getCenter();
+    const mapCenter = map.getCenter();
     const radius = roundRadiusM(
       Math.min(
         MAX_PEAKS_RADIUS_M,
-        visibleRadiusM(center.lat, map.getZoom(), container.clientWidth, container.clientHeight),
+        visibleRadiusM(mapCenter.lat, map.getZoom(), container.clientWidth, container.clientHeight),
       ),
     );
     let peaks: Peak[];
     try {
       peaks = topPeaks(
-        await peaksAround({ lat: center.lat, lon: center.lng }, radius),
+        await peaksAround({ lat: mapCenter.lat, lon: mapCenter.lng }, radius),
         MAX_MARKERS,
       );
     } catch {
@@ -83,7 +91,7 @@
     map = new LibreMap({
       container,
       style: BASEMAP_STYLE,
-      center: [viewpoint.lon, viewpoint.lat],
+      center: [center.lon, center.lat],
       zoom: 11,
       pitch: 60,
       maxPitch: 75,
@@ -133,9 +141,9 @@
     };
   });
 
-  // Suit les téléportations décidées ailleurs (recherche, géolocalisation).
+  // Suit les recentrages décidés ailleurs (recherche, géolocalisation, fiche).
   $effect(() => {
-    const { lat, lon } = viewpoint;
+    const { lat, lon } = center;
     if (!map) return;
     map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 11) });
   });
@@ -156,35 +164,34 @@
 
   function panoramaHere(): void {
     if (!map) return;
-    const center = map.getCenter();
-    onteleport({ lat: center.lat, lon: center.lng });
+    const mapCenter = map.getCenter();
+    onteleport({ lat: mapCenter.lat, lon: mapCenter.lng });
   }
 </script>
 
 <div class="map">
   <div class="canvas" bind:this={container}></div>
 
-  <button class="fab" onclick={panoramaHere}>⛰ {fr.map.panoramaHere}</button>
+  <button class="fab pill" onclick={panoramaHere}>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 18.5 6.5 9.5l3.2 4.4 3.6-7.4 3 5.2 1.8-2.4L22 18.5" />
+      <path d="M2 18.5h20" />
+    </svg>
+    {fr.map.panoramaHere}
+  </button>
 
   {#if selected}
-    <aside class="card">
-      <button class="close" onclick={() => (selected = null)} aria-label={fr.peakCard.close}>
-        ×
-      </button>
-      <h2>{peakDisplayName(selected, settings.names)}</h2>
-      <p>
-        {#if selected.elevation !== null}
-          {fr.peakCard.elevation} :
-          <strong>{formatElevation(selected.elevation, settings.units)}</strong>
-        {/if}
-      </p>
-      <button
-        class="go"
-        onclick={() => selected && onteleport({ lat: selected.lat, lon: selected.lon })}
-      >
-        {fr.map.seePanorama}
-      </button>
-    </aside>
+    <PeakCard
+      peak={{
+        id: selected.id,
+        name: peakDisplayName(selected, settings.names),
+        elevation: selected.elevation,
+        lat: selected.lat,
+        lon: selected.lon,
+      }}
+      onclose={() => (selected = null)}
+      {onteleport}
+    />
   {/if}
 </div>
 
@@ -202,19 +209,20 @@
 
   :global(.peak-marker) {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.05rem;
-    padding: 0.18rem 0.5rem;
+    gap: 0;
+    height: 1.7rem;
+    padding: 0;
     border: none;
-    border-radius: 0.4rem;
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
+    border-radius: 999px;
+    background: var(--surface);
     color: var(--text);
-    font-size: 0.72rem;
-    line-height: 1.2;
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1;
     white-space: nowrap;
     cursor: pointer;
-    text-shadow: 0 1px 3px rgb(0 0 0 / 55%);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 28%);
   }
 
   :global(.peak-marker::after) {
@@ -222,18 +230,25 @@
     position: absolute;
     top: 100%;
     left: 50%;
-    width: 1px;
-    height: 8px;
-    background: color-mix(in srgb, var(--text) 65%, transparent);
+    width: 1.5px;
+    height: 10px;
+    background: rgb(255 255 255 / 92%);
   }
 
   :global(.peak-marker-name) {
-    font-weight: 600;
+    padding: 0 0.55rem 0 0.7rem;
+    font-weight: 500;
   }
 
   :global(.peak-marker-ele) {
-    color: var(--accent);
-    font-size: 0.64rem;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 0.65rem 0 0.5rem;
+    border-radius: 0 999px 999px 0;
+    background: var(--accent);
+    color: #fff;
+    font-variant-numeric: tabular-nums;
   }
 
   /* L'attribution MapLibre doit rester au-dessus de la barre home iOS. */
@@ -247,75 +262,26 @@
     left: 50%;
     bottom: calc(1.4rem + var(--safe-bottom));
     transform: translateX(-50%);
-    padding: 0.55rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 85%, transparent);
-    color: var(--text);
-    font-size: 0.9rem;
+    height: var(--round);
+    padding: 0 1.2rem;
+    border: none;
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: 0.95rem;
     cursor: pointer;
-    box-shadow: 0 4px 18px rgb(0 0 0 / 35%);
+  }
+
+  .fab svg {
+    width: 1.4rem;
+    height: 1.4rem;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .fab:hover {
-    border-color: var(--accent);
-  }
-
-  .card {
-    position: absolute;
-    left: 50%;
-    bottom: calc(4.6rem + var(--safe-bottom));
-    transform: translateX(-50%);
-    min-width: 14rem;
-    max-width: min(22rem, 90vw);
-    padding: 0.8rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
-    background: color-mix(in srgb, var(--surface) 94%, transparent);
-    box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
-  }
-
-  .card h2 {
-    margin: 0 1.2rem 0.3rem 0;
-    font-size: 1.05rem;
-  }
-
-  .card p {
-    margin: 0 0 0.6rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-
-  .card strong {
-    color: var(--text);
-  }
-
-  .go {
-    padding: 0.45rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
     background: var(--surface-2);
-    color: var(--accent);
-    font-size: 0.88rem;
-    cursor: pointer;
-  }
-
-  .go:hover {
-    border-color: var(--accent);
-  }
-
-  .close {
-    position: absolute;
-    top: 0.35rem;
-    right: 0.5rem;
-    border: none;
-    background: none;
-    color: var(--muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-  }
-
-  .close:hover {
-    color: var(--text);
   }
 </style>

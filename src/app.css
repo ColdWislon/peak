@@ -1,12 +1,19 @@
-/* Thème « sombre alpin » — décision n° 13 du PLAN.md */
+/* Thème clair « PeakVisor » — amendement de la décision n° 13 du PLAN.md :
+   chrome blanc en boutons ronds, accent turquoise, étiquettes en capsules
+   blanches couchées, fiche en feuille blanche au bas de l'écran. */
 :root {
-  --bg: #0b1020;
-  --surface: #141b2e;
-  --surface-2: #1b2440;
-  --border: #232c44;
-  --text: #e8edf7;
-  --muted: #8b96ad;
-  --accent: #6fd3ff;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #e3f4f3;
+  --border: #d5e4e4;
+  --text: #17202a;
+  --muted: #6f7c86;
+  /* Accent turquoise : icônes, altitude des étiquettes, poignée de la fiche. */
+  --accent: #2eb8b3;
+  /* Même turquoise, plus foncé : lisible en texte sur fond clair. */
+  --accent-ink: #1a9e99;
+  --danger: #ff3b55;
+  --shadow: 0 3px 14px rgb(0 0 0 / 16%);
 
   /* Zones sûres iOS (encoche, Dynamic Island, barre home) : 0 ailleurs. */
   --safe-top: env(safe-area-inset-top, 0px);
@@ -14,7 +21,14 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
 
-  color-scheme: dark;
+  /* Chrome flottant : boutons ronds en colonne à gauche, un à droite. */
+  --round: 2.75rem;
+  --chrome-gap: 0.6rem;
+  --chrome-top: calc(0.65rem + var(--safe-top));
+  --chrome-left: calc(0.9rem + var(--safe-left));
+  --chrome-right: calc(0.9rem + var(--safe-right));
+
+  color-scheme: light;
   font-family:
     system-ui,
     -apple-system,
@@ -49,10 +63,70 @@ body {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 
 a:hover {
   text-decoration: underline;
+}
+
+/* Bouton rond blanc du chrome (menu, recherche, 3D, panorama, recalage…). */
+.btn-round {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--round);
+  height: var(--round);
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-round:hover:enabled {
+  background: var(--surface-2);
+}
+
+.btn-round:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.btn-round.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-round svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Pilule d'état flottante (statut des sommets, messages, cap du panorama). */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.95rem;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
 }

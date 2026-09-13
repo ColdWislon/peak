@@ -23,6 +23,10 @@
   let viewpoint = $state<LatLon>(urlViewpoint ?? DEFAULT_VIEWPOINT);
   let viewpointSource = $state<ViewpointSource>(urlViewpoint ? 'url' : 'defaut');
   let mode = $state<ViewMode>(parseMode(location.search));
+  let menuOpen = $state(false);
+  let searchOpen = $state(false);
+  /** « Voir sur la carte » : la carte se centre sur le sommet sans déplacer le point de vue. */
+  let mapCenter = $state<LatLon | null>(null);
 
   function syncUrl(): void {
     history.replaceState(null, '', viewpointToSearch(viewpoint, mode));
@@ -32,6 +36,7 @@
   function teleport(next: LatLon, source: ViewpointSource): void {
     viewpoint = next;
     viewpointSource = source;
+    mapCenter = null;
     syncUrl();
   }
 
@@ -39,8 +44,21 @@
   function teleportToPanorama(next: LatLon): void {
     viewpoint = next;
     viewpointSource = 'carte';
+    mapCenter = null;
     mode = 'panorama';
     syncUrl();
+  }
+
+  /** Depuis une fiche de sommet (« Téléporter ») : le panorama vu de sa pointe. */
+  function teleportToPeak(next: LatLon): void {
+    teleportToPanorama(next);
+    viewpointSource = 'sommet';
+  }
+
+  /** Depuis une fiche de sommet : la carte centrée dessus, point de vue inchangé. */
+  function showOnMap(target: LatLon): void {
+    mapCenter = target;
+    switchMode('carte');
   }
 
   onMount(() => {
@@ -76,33 +94,101 @@
     mode = next;
     syncUrl();
   }
+
+  /** Bouton « 3D » : la carte 3D, ou retour à la visée quand on y est déjà. */
+  function toggleMap(): void {
+    switchMode(mode === 'carte' ? 'viser' : 'carte');
+  }
+
+  /** Bouton de droite : visée caméra ↔ panorama de synthèse. */
+  function togglePanorama(): void {
+    switchMode(mode === 'viser' ? 'panorama' : 'viser');
+  }
 </script>
 
 <div class="app">
-  <header>
-    <h1>{fr.appName}</h1>
-    <SearchBar onpick={teleport} />
-    <nav class="modes" aria-label="Mode d’affichage">
-      <button class:active={mode === 'panorama'} onclick={() => switchMode('panorama')}>
-        {fr.modes.panorama}
-      </button>
-      <button class:active={mode === 'carte'} onclick={() => switchMode('carte')}>
-        {fr.modes.map}
-      </button>
-      <button class:active={mode === 'viser'} onclick={() => switchMode('viser')}>
-        {fr.modes.viser}
-      </button>
-    </nav>
-    <SettingsPanel />
-  </header>
-
   {#if mode === 'panorama'}
-    <PanoramaView {viewpoint} />
+    <PanoramaView {viewpoint} onteleport={teleportToPeak} onmap={showOnMap} />
   {:else if mode === 'carte'}
-    <MapView {viewpoint} onteleport={teleportToPanorama} />
+    <MapView center={mapCenter ?? viewpoint} onteleport={teleportToPanorama} />
   {:else}
-    <ViserView {viewpoint} {viewpointSource} />
+    <ViserView {viewpoint} {viewpointSource} onteleport={teleportToPeak} onmap={showOnMap} />
   {/if}
+
+  <!-- Chrome flottant façon PeakVisor : boutons ronds blancs par-dessus la vue. -->
+  <div class="chrome" hidden={searchOpen}>
+    <div class="column">
+      <button
+        class="btn-round"
+        aria-label={fr.modes.menu}
+        aria-expanded={menuOpen}
+        title={fr.modes.menu}
+        onclick={() => (menuOpen = !menuOpen)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+      </button>
+      <button
+        class="btn-round"
+        aria-label={fr.search.open}
+        title={fr.search.open}
+        onclick={() => (searchOpen = true)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m15.5 15.5 5 5" />
+        </svg>
+      </button>
+      <button
+        class="btn-round"
+        class:active={mode === 'carte'}
+        aria-label={fr.modes.map}
+        aria-pressed={mode === 'carte'}
+        title={fr.modes.map}
+        onclick={toggleMap}
+      >
+        {fr.modes.map3d}
+      </button>
+    </div>
+
+    <button
+      class="btn-round right"
+      aria-label={mode === 'viser' ? fr.modes.panorama : fr.modes.viser}
+      title={mode === 'viser' ? fr.modes.panorama : fr.modes.viser}
+      onclick={togglePanorama}
+    >
+      {#if mode === 'viser'}
+        <!-- Ligne de crête : le panorama de synthèse. -->
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 18.5 6.5 9.5l3.2 4.4 3.6-7.4 3 5.2 1.8-2.4L22 18.5" />
+          <path d="M2 18.5h20" />
+        </svg>
+      {:else}
+        <!-- Caméra : la visée. -->
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8h3.2l1.6-2.5h6.4L16.8 8H20v11H4z" />
+          <circle cx="12" cy="13" r="3.2" />
+        </svg>
+      {/if}
+    </button>
+  </div>
+
+  <SearchBar
+    open={searchOpen}
+    onclose={() => (searchOpen = false)}
+    onpick={(next, source) => {
+      teleport(next, source);
+      searchOpen = false;
+    }}
+  />
+  <SettingsPanel
+    open={menuOpen}
+    {mode}
+    onmode={(next) => {
+      switchMode(next);
+      menuOpen = false;
+    }}
+    onclose={() => (menuOpen = false)}
+  />
 </div>
 
 <style>
@@ -113,70 +199,25 @@
     height: 100%;
   }
 
-  header {
+  .chrome {
     position: absolute;
-    top: calc(0.65rem + var(--safe-top));
-    left: calc(0.9rem + var(--safe-left));
-    right: calc(0.9rem + var(--safe-right));
-    z-index: 3;
-    display: flex;
-    align-items: center;
-    gap: 0.9rem;
+    inset: 0;
+    z-index: 4;
     pointer-events: none;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 1.25rem;
-    letter-spacing: 0.06em;
-    text-shadow: 0 1px 4px rgb(0 0 0 / 45%);
-  }
-
-  .modes {
-    margin-left: auto;
+  .column {
+    position: absolute;
+    top: var(--chrome-top);
+    left: var(--chrome-left);
     display: flex;
-    padding: 0.15rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 78%, transparent);
-    pointer-events: auto;
+    flex-direction: column;
+    gap: var(--chrome-gap);
   }
 
-  .modes button {
-    padding: 0.32rem 0.85rem;
-    border: none;
-    border-radius: 999px;
-    background: none;
-    color: var(--muted);
-    font-size: 0.85rem;
-    cursor: pointer;
-  }
-
-  .modes button.active {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-
-  /* Portrait / écrans étroits : l'en-tête en une seule ligne flottante ne
-     tient pas. Il repasse dans le flux (la vue commence dessous, plus aucun
-     chevauchement avec le HUD ni la boussole) et s'enroule sur deux rangées :
-     titre + modes + réglages, puis la recherche en pleine largeur. */
-  @media (max-width: 640px) {
-    header {
-      position: relative;
-      top: 0;
-      left: 0;
-      right: 0;
-      flex-wrap: wrap;
-      row-gap: 0.55rem;
-      column-gap: 0.6rem;
-      padding: calc(0.65rem + var(--safe-top)) calc(0.9rem + var(--safe-right)) 0.65rem
-        calc(0.9rem + var(--safe-left));
-    }
-
-    header :global(.search) {
-      order: 4;
-      flex: 1 1 100%;
-    }
+  .right {
+    position: absolute;
+    top: var(--chrome-top);
+    right: var(--chrome-right);
   }
 </style>

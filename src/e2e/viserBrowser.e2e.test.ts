@@ -17,9 +17,10 @@ import {
  * tourne dans Chromium (Playwright) avec tuiles d'altitude et Overpass simulés
  * depuis le monde synthétique, une caméra factice qui filme la silhouette de
  * référence exacte, et des capteurs d'orientation synthétiques. On mesure sur
- * CAPTURES D'ÉCRAN que l'horizon rouge épouse l'horizon visible de la vidéo,
- * que l'étiquette du sommet s'ancre sur la crête, puis qu'un biais capteurs
- * injecté est rattrapé par « Recaler sur l'horizon ».
+ * CAPTURES D'ÉCRAN que la ligne d'horizon calculée (trait sombre) épouse
+ * l'horizon visible de la vidéo, que l'étiquette du sommet s'ancre sur la
+ * crête, puis qu'un biais capteurs injecté est rattrapé par « Recaler sur
+ * l'horizon ».
  */
 
 const PORT = 4199;
@@ -97,7 +98,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     preview?.kill();
   });
 
-  it('l’horizon rouge épouse l’horizon visible, l’étiquette s’ancre sur la crête', async () => {
+  it('l’horizon tracé épouse l’horizon visible, l’étiquette s’ancre sur la crête', async () => {
     await page.goto(
       `${BASE}?lat=${WORLD_VIEWPOINT.lat.toFixed(5)}&lon=${WORLD_VIEWPOINT.lon.toFixed(5)}&mode=viser`,
     );
@@ -108,7 +109,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
 
     const shot = decodePng(await page.screenshot());
     const label = await labelAnchor();
-    const gaps = alignmentGaps(shot, [label.x]);
+    const gaps = alignmentGaps(shot, exclusions(label));
     if (process.env.CIMES_E2E_DEBUG) {
       const { writeFileSync } = await import('node:fs');
       writeFileSync(`${process.env.CIMES_E2E_DEBUG}/s1.png`, await page.screenshot());
@@ -118,7 +119,8 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       );
     }
 
-    expect(gaps.usable).toBeGreaterThan(120);
+    // La capsule couchée occupe ~150 des 390 colonnes : il en reste une centaine.
+    expect(gaps.usable).toBeGreaterThan(80);
     expect(gaps.median).toBeLessThanOrEqual(3.5);
     expect(gaps.p90).toBeLessThanOrEqual(6);
 
@@ -130,7 +132,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
   }, 180_000);
 
   it('un biais capteurs (+6° cap, −3° assiette) est rattrapé par le recalage', async () => {
-    // Les capteurs se mettent à mentir : l'horizon rouge doit décrocher…
+    // Les capteurs se mettent à mentir : l'horizon tracé doit décrocher…
     await page.evaluate(() => {
       const e2e = (
         window as unknown as { __cimesE2E: { sensor: { heading: number; pitch: number } } }
@@ -138,7 +140,10 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       e2e.sensor = { heading: 96, pitch: -3 };
     });
     await page.waitForTimeout(1_200);
-    const before = alignmentGaps(decodePng(await page.screenshot()), [(await labelAnchor()).x]);
+    const before = alignmentGaps(
+      decodePng(await page.screenshot()),
+      exclusions(await labelAnchor()),
+    );
     expect(before.median).toBeGreaterThan(10);
 
     // …puis le bouton « Recaler sur l'horizon » rattrape le biais.
@@ -151,8 +156,11 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     expect(announced).toBeLessThanOrEqual(-5);
 
     await page.waitForTimeout(600);
-    const after = alignmentGaps(decodePng(await page.screenshot()), [(await labelAnchor()).x]);
-    expect(after.usable).toBeGreaterThan(120);
+    const after = alignmentGaps(
+      decodePng(await page.screenshot()),
+      exclusions(await labelAnchor()),
+    );
+    expect(after.usable).toBeGreaterThan(80);
     expect(after.median).toBeLessThanOrEqual(4.5);
   }, 120_000);
 
@@ -170,7 +178,9 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       HTMLAnchorElement.prototype.click = function noDownload(): void {};
     });
 
-    await page.getByRole('button', { name: 'Capture pour Claude' }).click();
+    // La capture se lance depuis le tiroir de menu ≡ (réglages → débogage).
+    await page.getByRole('button', { name: 'Menu' }).click();
+    await page.getByRole('button', { name: 'Capturer la vue caméra' }).click();
     const note = await page.waitForSelector('.capture-message', { timeout: 20_000 });
     expect((await note.textContent()) ?? '').toContain('joignez');
 
@@ -208,10 +218,16 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     expect(scale).toBeGreaterThan(1.2);
     expect(photoH / shot.width).toBeCloseTo(viser.h / viser.w, 2);
 
-    // La ligne rouge gravée épouse l'horizon de l'image : la mise à l'échelle
-    // repère-vue → repère-image est juste (c'est tout l'enjeu de la capture).
+    // La ligne d'horizon gravée épouse l'horizon de l'image : la mise à
+    // l'échelle repère-vue → repère-image est juste (c'est tout l'enjeu de la
+    // capture). L'analyse s'arrête à la photo : le bandeau sombre de légende
+    // serait pris pour la ligne.
     const anchor = await labelAnchor();
-    const gaps = alignmentGaps(shot, [anchor.x * scale]);
+    const gaps = alignmentGaps(
+      shot,
+      exclusions(anchor).map((r) => ({ left: r.left * scale, right: r.right * scale })),
+      photoH,
+    );
     expect(gaps.usable).toBeGreaterThan(150);
     // Seuil du scénario 1 (4,5 px de vue) converti en pixels d'image.
     expect(gaps.median).toBeLessThanOrEqual(4.5 * scale);
@@ -228,16 +244,19 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
   }, 120_000);
 
   /** Ancre de l'étiquette de sommet en coordonnées de FENÊTRE (celles des
-   *  captures) : pied du trait de rappel, soit bas de la boîte + 14 px — les
-   *  `style.left/top` de l'app sont dans le repère du conteneur Viser, décalé
-   *  de la hauteur de l'en-tête. */
-  async function labelAnchor(): Promise<{ x: number; y: number; name: string }> {
-    return page.$eval('button.label', (el) => {
+   *  captures) : l'élément `.peak` est un point de taille nulle posé sur la
+   *  pointe du sommet, au pied du trait de rappel. Le rectangle de la capsule
+   *  couchée sert à exclure ses colonnes de l'analyse d'alignement. */
+  async function labelAnchor(): Promise<LabelAnchor> {
+    return page.$eval('.peak', (el) => {
       const rect = el.getBoundingClientRect();
+      const pill = el.querySelector('button.label')!.getBoundingClientRect();
       return {
-        x: rect.left + rect.width / 2,
-        y: rect.bottom + 14,
+        x: rect.left,
+        y: rect.top,
         name: (el.querySelector('.name') as HTMLElement).textContent ?? '',
+        left: pill.left,
+        right: pill.right,
       };
     });
   }
@@ -253,22 +272,52 @@ interface Gaps {
   p90: number;
 }
 
+interface LabelAnchor {
+  x: number;
+  y: number;
+  name: string;
+  /** Rectangle englobant (fenêtre) de la capsule couchée. */
+  left: number;
+  right: number;
+}
+
+/** Plage de colonnes à exclure de l'analyse d'alignement. */
+interface ColumnRange {
+  left: number;
+  right: number;
+}
+
+/** Colonnes occupées par l'étiquette : capsule couchée, point et trait de rappel. */
+function exclusions(label: LabelAnchor): ColumnRange[] {
+  return [
+    { left: label.left - 4, right: label.right + 4 },
+    { left: label.x - 12, right: label.x + 12 },
+  ];
+}
+
 function classify(rgba: Uint8ClampedArray, width: number, x: number, y: number) {
   const o = (y * width + x) * 4;
   const r = rgba[o]!;
   const g = rgba[o + 1]!;
   const b = rgba[o + 2]!;
+  // Ligne d'horizon calculée : trait presque noir (#111418) — plus sombre que
+  // le terrain synthétique (58, 52, 48) et que le texte des capsules.
+  const line = r < 34 && g < 34 && b < 38;
   return {
-    red: r > 170 && g < 110 && b < 110,
-    // Terrain : sombre ET sans dominante bleue (l'ombre portée de la ligne
-    // assombrit le ciel mais lui laisse son bleu).
-    ground: r < 115 && g < 115 && b < 115 && b < r + 25,
+    line,
+    // Terrain : sombre ET sans dominante bleue (un pixel de ligne anticrénelé
+    // sur le ciel s'assombrit mais garde son bleu).
+    ground: !line && r < 115 && g < 115 && b < 115 && b < r + 25,
   };
 }
 
 /** Première ligne « terrain » de la colonne (frontière ciel→terrain vidéo). */
-function columnBoundary(shot: ReturnType<typeof decodePng>, x: number): number | null {
-  for (let y = 130; y < shot.height - 140; y++) {
+function columnBoundary(
+  shot: ReturnType<typeof decodePng>,
+  x: number,
+  bottom = shot.height,
+): number | null {
+  for (let y = 130; y < bottom - 140; y++) {
     const c = classify(shot.rgba, shot.width, x, y);
     if (!c.ground) continue;
     // Trois lignes de terrain d'affilée : évite les faux positifs isolés.
@@ -279,12 +328,16 @@ function columnBoundary(shot: ReturnType<typeof decodePng>, x: number): number |
   return null;
 }
 
-/** Ligne rouge de la colonne (centre des pixels rouges), ou null. */
-function columnLine(shot: ReturnType<typeof decodePng>, x: number): number | null {
+/** Ligne d'horizon de la colonne (centre des pixels de trait), ou null. */
+function columnLine(
+  shot: ReturnType<typeof decodePng>,
+  x: number,
+  bottom = shot.height,
+): number | null {
   let sum = 0;
   let count = 0;
-  for (let y = 130; y < shot.height - 140; y++) {
-    if (classify(shot.rgba, shot.width, x, y).red) {
+  for (let y = 130; y < bottom - 140; y++) {
+    if (classify(shot.rgba, shot.width, x, y).line) {
       sum += y;
       count++;
     }
@@ -292,13 +345,17 @@ function columnLine(shot: ReturnType<typeof decodePng>, x: number): number | nul
   return count > 0 ? sum / count : null;
 }
 
-/** Écarts |ligne rouge − frontière vidéo| par colonne, hors zones d'étiquette. */
-function alignmentGaps(shot: ReturnType<typeof decodePng>, excludeX: number[]): Gaps {
+/** Écarts |ligne d'horizon − frontière vidéo| par colonne, hors zones d'étiquette. */
+function alignmentGaps(
+  shot: ReturnType<typeof decodePng>,
+  excluded: ColumnRange[],
+  bottom = shot.height,
+): Gaps {
   const gaps: number[] = [];
   for (let x = 24; x < shot.width - 24; x++) {
-    if (excludeX.some((ex) => Math.abs(x - ex) < 85)) continue;
-    const boundary = columnBoundary(shot, x);
-    const line = columnLine(shot, x);
+    if (excluded.some((range) => x >= range.left && x <= range.right)) continue;
+    const boundary = columnBoundary(shot, x, bottom);
+    const line = columnLine(shot, x, bottom);
     if (boundary === null || line === null) continue;
     gaps.push(Math.abs(line - boundary));
   }

@@ -7,6 +7,11 @@ import type { PeakSight } from '../visibility/protocol';
  * Placement des étiquettes de sommets : projection écran sans Three.js
  * (reproduit la caméra YXZ du moteur), priorisation et anti-chevauchement
  * glouton. Module pur, testé — l'overlay Svelte ne fait qu'afficher.
+ *
+ * Les étiquettes sont des capsules COUCHÉES à 45° vers le haut-droit (nom puis
+ * altitude), ancrées par leur extrémité basse au sommet d'un trait de rappel
+ * vertical planté sur la pointe du sommet — la mise en page de PeakVisor : les
+ * noms se lisent le long de la crête sans la masquer.
  */
 
 export interface LabelCandidate {
@@ -21,6 +26,8 @@ export interface LabelCandidate {
   elevAngleRad: number;
   /** Priorité d'affichage (plus grand = gardé en premier). */
   score: number;
+  lat: number;
+  lon: number;
 }
 
 export interface ViewGeometry {
@@ -37,15 +44,26 @@ export interface PlacedLabel {
   name: string;
   elevation: number;
   distanceM: number;
+  /** Cap du sommet (°) : la fiche annonce « 12,4 km vers SO ». */
+  azimuthDeg: number;
+  lat: number;
+  lon: number;
   /** Point d'ancrage écran (px) : la pointe du sommet. */
   x: number;
   y: number;
   /**
-   * Surélévation (px) de la boîte au-dessus de sa place normale, quand une
+   * Surélévation (px) de la capsule au-dessus de sa place normale, quand une
    * étiquette plus importante occupe déjà celle-ci : le trait de rappel
    * s'allonge d'autant. 0 pour une étiquette posée à sa place.
    */
   lift: number;
+}
+
+/** Sommet visible dans le cadre, étiqueté ou non : un point sur la crête. */
+export interface PeakDot {
+  id: number;
+  x: number;
+  y: number;
 }
 
 /** Joint les résultats du worker aux sommets et prépare les candidats triés. */
@@ -75,6 +93,8 @@ export function toCandidates(
       // sommet proche, plus haut à l'écran, ne doit pas le faire disparaître ;
       // lui est surélevé (voir placeLabels), pas supprimé.
       score: peakImportance({ elevation: sight.elevation, prominence: peak.prominence }),
+      lat: peak.lat,
+      lon: peak.lon,
     });
   }
 
@@ -125,34 +145,77 @@ export function projectToScreen(
   };
 }
 
-/** Hauteur estimée d'une boîte (nom + ligne d'infos) et trait de rappel minimal (px). */
-const LABEL_HEIGHT = 34;
-const LEADER_MIN = 12;
-/** Écart entre deux boîtes empilées (px). */
-const STACK_GAP = 4;
-/** Niveaux d'empilement tentés au-dessus de la place normale (0 = à sa place). */
+/** Inclinaison des capsules (°, sens trigonométrique : vers le haut-droit). */
+export const LABEL_ANGLE_DEG = 45;
+/** Épaisseur d'une capsule (px), nom et altitude sur une seule ligne. */
+export const LABEL_THICKNESS = 34;
+/** Longueur minimale du trait de rappel (px) entre la pointe et la capsule. */
+export const LABEL_LEADER_MIN = 48;
+/** Espace laissé entre deux capsules voisines (px). */
+const STACK_GAP = 6;
+/** Niveaux de surélévation tentés au-dessus de la place normale (0 = à sa place). */
 const MAX_STACK_LEVELS = 3;
+/** Largeur moyenne d'un caractère (px) et marges intérieures d'un segment de capsule. */
+const CHAR_WIDTH = 8.4;
+const SEGMENT_PADDING = 22;
 
-/** Boîte estimée d'une étiquette ancrée au-dessus du point, surélevée de `lift`. */
-function labelBox(candidate: LabelCandidate, x: number, y: number, lift: number) {
-  const width = Math.max(64, candidate.name.length * 7.2 + 16);
+const COS_A = Math.cos(degToRad(LABEL_ANGLE_DEG));
+const SIN_A = Math.sin(degToRad(LABEL_ANGLE_DEG));
+/**
+ * Marche de surélévation : monter d'un niveau décale la capsule, en travers de
+ * son axe, d'exactement une épaisseur plus l'écart — une voisine posée au même
+ * endroit est dégagée d'un coup.
+ */
+const LIFT_STEP = (LABEL_THICKNESS + STACK_GAP) / COS_A;
+
+/** Longueur estimée d'une capsule (px) : nom, puis altitude « 4808 m ». */
+export function estimateLabelLength(name: string, elevation: number): number {
+  const elevationText = `${Math.round(elevation)} m`;
+  return (
+    Math.max(3, name.length) * CHAR_WIDTH +
+    SEGMENT_PADDING +
+    elevationText.length * CHAR_WIDTH +
+    SEGMENT_PADDING
+  );
+}
+
+/**
+ * Boîte d'une capsule dans le repère INCLINÉ (u le long de l'axe de la
+ * capsule, v en travers) : toutes les capsules partagent l'inclinaison, elles
+ * y sont des rectangles alignés — le test de chevauchement est exact.
+ */
+interface TiltedBox {
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+function labelBox(candidate: LabelCandidate, x: number, y: number, lift: number): TiltedBox {
+  const startY = y - LABEL_LEADER_MIN - lift; // extrémité basse de la capsule
+  const u = x * COS_A - startY * SIN_A;
+  const v = x * SIN_A + startY * COS_A;
+  const length = estimateLabelLength(candidate.name, candidate.elevation);
   return {
-    left: x - width / 2,
-    top: y - LABEL_HEIGHT - LEADER_MIN - lift,
-    width,
-    height: LABEL_HEIGHT,
+    u0: u,
+    u1: u + length,
+    v0: v - LABEL_THICKNESS / 2,
+    v1: v + LABEL_THICKNESS / 2,
   };
 }
 
-function overlaps(
-  a: { left: number; top: number; width: number; height: number },
-  b: { left: number; top: number; width: number; height: number },
-): boolean {
+function overlaps(a: TiltedBox, b: TiltedBox): boolean {
+  return a.u0 < b.u1 && b.u0 < a.u1 && a.v0 < b.v1 && b.v0 < a.v1;
+}
+
+/** Vrai si le point projeté tombe dans le cadre (marge en px tolérée). */
+function inFrame(point: ScreenPoint, view: ViewGeometry, margin: number): boolean {
   return (
-    a.left < b.left + b.width &&
-    b.left < a.left + a.width &&
-    a.top < b.top + b.height &&
-    b.top < a.top + a.height
+    !point.behind &&
+    point.x >= -margin &&
+    point.x <= view.width + margin &&
+    point.y >= -margin &&
+    point.y <= view.height + margin
   );
 }
 
@@ -162,29 +225,23 @@ function overlaps(
  * Une étiquette dont la place est prise n'est pas jetée : elle est surélevée
  * d'un ou plusieurs niveaux, trait de rappel allongé, jusqu'à trouver un
  * espace libre — un petit sommet devant un géant garde son nom sans lui
- * voler le sien. Faute de place sous le bord haut de l'écran, elle disparaît.
+ * voler le sien. Quand l'extrémité basse de la capsule sortirait par le haut
+ * de l'écran, elle disparaît (la capsule peut, elle, dépasser du cadre :
+ * son début reste lisible).
  */
 export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): PlacedLabel[] {
   const placed: PlacedLabel[] = [];
-  const boxes: Array<{ left: number; top: number; width: number; height: number }> = [];
+  const boxes: TiltedBox[] = [];
   const margin = 40;
 
   for (const candidate of candidates) {
     const point = projectToScreen(candidate.azimuthDeg, candidate.elevAngleRad, view);
-    if (point.behind) continue;
-    if (
-      point.x < -margin ||
-      point.x > view.width + margin ||
-      point.y < -margin ||
-      point.y > view.height + margin
-    ) {
-      continue;
-    }
+    if (!inFrame(point, view, margin)) continue;
 
     for (let level = 0; level < MAX_STACK_LEVELS; level++) {
-      const lift = level * (LABEL_HEIGHT + STACK_GAP);
+      const lift = level * LIFT_STEP;
+      if (point.y - LABEL_LEADER_MIN - lift < 0) break; // plus de place au-dessus : on renonce
       const box = labelBox(candidate, point.x, point.y, lift);
-      if (box.top < 0) break; // plus de place au-dessus : on renonce
       if (boxes.some((b) => overlaps(b, box))) continue;
 
       boxes.push(box);
@@ -193,6 +250,9 @@ export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): P
         name: candidate.name,
         elevation: candidate.elevation,
         distanceM: candidate.distanceM,
+        azimuthDeg: candidate.azimuthDeg,
+        lat: candidate.lat,
+        lon: candidate.lon,
         x: point.x,
         y: point.y,
         lift,
@@ -202,6 +262,21 @@ export function placeLabels(candidates: LabelCandidate[], view: ViewGeometry): P
   }
 
   return placed;
+}
+
+/**
+ * Tous les sommets visibles qui tombent dans le cadre, étiquetés ou non :
+ * l'overlay pose un point sur chaque pointe, pour que la crête se lise même
+ * là où les noms n'ont pas trouvé de place.
+ */
+export function projectPeaks(candidates: LabelCandidate[], view: ViewGeometry): PeakDot[] {
+  const dots: PeakDot[] = [];
+  for (const candidate of candidates) {
+    const point = projectToScreen(candidate.azimuthDeg, candidate.elevAngleRad, view);
+    if (!inFrame(point, view, 0)) continue;
+    dots.push({ id: candidate.id, x: point.x, y: point.y });
+  }
+  return dots;
 }
 
 const FEET_PER_METER = 3.28084;

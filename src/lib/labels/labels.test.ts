@@ -5,6 +5,7 @@ import {
   formatDistance,
   formatElevation,
   placeLabels,
+  projectPeaks,
   projectToScreen,
   toCandidates,
   type LabelCandidate,
@@ -28,6 +29,8 @@ function candidate(partial: Partial<LabelCandidate>): LabelCandidate {
     azimuthDeg: 0,
     elevAngleRad: 0,
     score: 2000,
+    lat: 0,
+    lon: 0,
     ...partial,
   };
 }
@@ -129,12 +132,47 @@ describe('placeLabels', () => {
     expect(labels.every((l) => l.lift === 0)).toBe(true);
   });
 
+  it('deux capsules couchées côte à côte ne se chevauchent pas si l’écart le permet', () => {
+    // Capsules inclinées à 45° : deux voisines à 60 px d'écart horizontal sont
+    // séparées, en travers de leur axe, de 60 × cos 45° ≈ 42 px > épaisseur.
+    const labels = placeLabels(
+      [candidate({ id: 1 }), candidate({ id: 2, azimuthDeg: 3.95, name: 'Autre' })],
+      view,
+    );
+    expect(labels).toHaveLength(2);
+    expect(labels[1]!.x - labels[0]!.x).toBeGreaterThan(55);
+    expect(labels.every((l) => l.lift === 0)).toBe(true);
+  });
+
+  it('transmet cap et coordonnées pour la fiche', () => {
+    const [label] = placeLabels([candidate({ azimuthDeg: 5, lat: 45.9, lon: 6.9 })], view);
+    expect(label!.azimuthDeg).toBe(5);
+    expect(label!.lat).toBe(45.9);
+    expect(label!.lon).toBe(6.9);
+  });
+
   it('ignore ce qui est hors cadre ou derrière', () => {
     const labels = placeLabels(
       [candidate({ id: 1, azimuthDeg: 170 }), candidate({ id: 2, azimuthDeg: 90 })],
       view,
     );
     expect(labels).toHaveLength(0);
+  });
+});
+
+describe('projectPeaks', () => {
+  it('pose un point sur chaque sommet visible du cadre, étiqueté ou non', () => {
+    const dots = projectPeaks(
+      [
+        candidate({ id: 1 }),
+        candidate({ id: 2, azimuthDeg: 0.1 }), // même place : pas d'étiquette, mais un point
+        candidate({ id: 3, azimuthDeg: 90 }), // hors cadre
+      ],
+      view,
+    );
+    expect(dots.map((d) => d.id)).toEqual([1, 2]);
+    expect(dots[0]!.x).toBeCloseTo(500, 6);
+    expect(dots[0]!.y).toBeCloseTo(500, 6);
   });
 });
 
@@ -176,6 +214,8 @@ describe('toCandidates', () => {
     // Score = importance ABSOLUE (altitude + 2 × proéminence) : la priorité
     // de placement, pas le choix des sommets.
     expect(candidates[0]!.score).toBe(4808 + 2 * 4696);
+    expect(candidates[0]!.lat).toBe(0);
+    expect(candidates[0]!.lon).toBe(0);
   });
 
   it('un petit sommet proche passe APRÈS un géant lointain', () => {
