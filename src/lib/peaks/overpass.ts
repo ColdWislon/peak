@@ -1,5 +1,4 @@
-import type { LatLon } from '../geo';
-import { buildPeaksQuery, parsePeaks, type Peak } from './index';
+import { buildPeaksQuery, parsePeaks, type Bounds, type Peak } from './index';
 
 /** Endpoints Overpass publics, essayés dans l'ordre (repli en cas de panne). */
 export const OVERPASS_ENDPOINTS = [
@@ -8,11 +7,12 @@ export const OVERPASS_ENDPOINTS = [
 ] as const;
 
 /**
- * Interroge Overpass pour les sommets nommés autour d'un point.
+ * Interroge Overpass pour les sommets nommés dans une union de rectangles.
  * Chaque endpoint est tenté à son tour ; la dernière erreur est propagée.
  */
-export async function fetchPeaksAround(center: LatLon, radiusM: number): Promise<Peak[]> {
-  const query = buildPeaksQuery(center, radiusM);
+export async function fetchPeaksIn(areas: readonly Bounds[]): Promise<Peak[]> {
+  if (areas.length === 0) return [];
+  const query = buildPeaksQuery(areas);
   let lastError: unknown = new Error('Aucun endpoint Overpass configuré');
 
   for (const endpoint of OVERPASS_ENDPOINTS) {

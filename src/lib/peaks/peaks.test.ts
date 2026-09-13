@@ -56,11 +56,14 @@ const FIXTURE = {
 };
 
 describe('buildPeaksQuery', () => {
-  it('vise les nœuds natural=peak nommés dans le rayon demandé', () => {
-    const q = buildPeaksQuery({ lat: 45.9237, lon: 6.8694 }, 60_000);
+  it('vise les nœuds natural=peak nommés dans chaque rectangle demandé', () => {
+    const q = buildPeaksQuery([
+      { south: 45.75, west: 6.75, north: 46, east: 7 },
+      { south: 46, west: 6.5, north: 46.25, east: 7 },
+    ]);
     expect(q).toContain('[out:json]');
-    expect(q).toContain('node["natural"="peak"]["name"]');
-    expect(q).toContain('around:60000,45.923700,6.869400');
+    expect(q).toContain('node["natural"="peak"]["name"](45.750000,6.750000,46.000000,7.000000);');
+    expect(q).toContain('node["natural"="peak"]["name"](46.000000,6.500000,46.250000,7.000000);');
     expect(q).toContain('out body;');
   });
 });
