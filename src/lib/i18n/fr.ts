@@ -108,6 +108,8 @@ export const fr = {
   map: {
     panoramaHere: 'Panorama ici',
     seePanorama: 'Voir le panorama d’ici',
+    basemapUnavailable: 'Fond de carte indisponible : relief seul',
+    webglUnavailable: 'Carte 3D indisponible : WebGL refusé par le navigateur',
   },
   attributions: {
     intro: 'Données',
