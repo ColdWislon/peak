@@ -446,3 +446,15 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       le tracé de sentier jaune de la capture (données d'itinéraires, pas d'habillage).
       Test navigateur adapté : ancre = l'élément `.peak`, horizon sombre (plus rouge),
       colonnes de la capsule exclues d'après son rectangle réel, capture lancée depuis le menu.
+- [x] Suivi continu de la position en mode Viser. La caméra filme d'où l'on est : tant que
+      la visée tourne, `watchPosition` (haute précision) surveille le GPS et le point de vue
+      rejoint la position réelle. `shouldMoveViewpoint` (`lib/viser/follow`, testé) ne déplace
+      que pour un vrai déplacement : au moins 30 m (résolution du DEM) ET plus que
+      l'incertitude du relevé (un fix à 200 m près qui « bouge » de 80 m n'a rien vu
+      bouger), relevés au-delà de 500 m ignorés, au plus un déplacement toutes les 10 s.
+      Le rechargement déclenché par le suivi est silencieux : les étiquettes en place restent
+      affichées jusqu'aux nouveaux résultats (un pas ne fait pas clignoter l'écran). Bouton
+      rond ⌖ sous la colonne de gauche : actif d'emblée quand le point de vue vient du GPS ou
+      du défaut, arrêté dès qu'un lieu est choisi (lien, recherche, carte, sommet), un toucher
+      le rend. Refus de la géolocalisation : suivi coupé et message ; délai ou signal perdu :
+      on continue d'écouter. Rapport de débogage : `suiviPosition`, `dernierReleve`.
