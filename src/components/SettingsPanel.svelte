@@ -61,6 +61,7 @@
    *  (il est persisté), sans aucun moyen de le reprendre depuis l'interface. */
   function forgetFov(): void {
     settings.cameraShortFovDeg = null;
+    settings.cameraFovSamples = [];
     saveSettings();
     captureMessage = fr.settings.fovForgotten;
     setTimeout(() => (captureMessage = null), 6000);
@@ -235,7 +236,7 @@
       <p class="report-note">
         {settings.cameraShortFovDeg === null
           ? fr.settings.fovNone
-          : fr.settings.fovStored(settings.cameraShortFovDeg)}
+          : fr.settings.fovStored(settings.cameraShortFovDeg, settings.cameraFovSamples.length)}
       </p>
     </fieldset>
 

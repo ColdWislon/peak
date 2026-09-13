@@ -100,7 +100,8 @@ export const fr = {
       'Le rapport dit ce que l’app croit viser ; la capture montre ce que la caméra voit — Claude n’y a accès que par ce fichier.',
     captureUnavailable: 'Démarrez le mode Viser pour capturer la vue caméra.',
     forgetFov: 'Oublier l’étalonnage caméra',
-    fovStored: (deg: number) => `Optique mesurée : ${deg}° (petit côté du capteur).`,
+    fovStored: (deg: number, samples: number) =>
+      `Optique : ${deg}° (petit côté du capteur), médiane de ${samples} mesure${samples > 1 ? 's' : ''}.`,
     fovNone: 'Optique non étalonnée : « Recaler sur l’horizon » la mesurera.',
     fovForgotten: 'Étalonnage oublié — refaites « Recaler sur l’horizon ».',
   },

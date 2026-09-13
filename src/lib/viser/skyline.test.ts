@@ -10,6 +10,7 @@ import {
   pixelToAngles,
   ridgeScreenPolylines,
   skylineScreenPoints,
+  skylineSpreadDeg,
   type DetectedSkyline,
   type SkylineMatch,
 } from './skyline';
@@ -292,6 +293,29 @@ describe('detectImageSkyline', () => {
     const flat = new Uint8ClampedArray(w * h * 4).fill(128);
     const detected = detectImageSkyline(flat, w, h);
     for (let x = 0; x < w; x++) expect(detected.confidence[x]!).toBeLessThan(0.1);
+  });
+});
+
+describe('skylineSpreadDeg', () => {
+  it('mesure l’amplitude de la crête sur les colonnes confiantes seulement', () => {
+    const detected = {
+      rows: Float32Array.from([10, 20, 30, 90]),
+      confidence: Float32Array.from([0.9, 0.9, 0.9, 0.1]), // la dernière : parasite
+      width: 4,
+      height: 100,
+    };
+    // 20 lignes sur 100 pour un champ de 30° : 6°.
+    expect(skylineSpreadDeg(detected, 30)).toBeCloseTo(6, 6);
+  });
+
+  it('vaut 0 sans colonne exploitable', () => {
+    const detected = {
+      rows: Float32Array.from([10, 20]),
+      confidence: Float32Array.from([0.1, 0.2]),
+      width: 2,
+      height: 100,
+    };
+    expect(skylineSpreadDeg(detected, 30)).toBe(0);
   });
 });
 
