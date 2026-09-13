@@ -32,15 +32,28 @@ export function peakImportance(peak: Pick<Peak, 'elevation' | 'prominence'>): nu
   return (peak.elevation ?? -Infinity) + (peak.prominence ?? 0) * 2;
 }
 
-/** Requête Overpass QL : sommets nommés dans un rayon autour d'un point. */
-export function buildPeaksQuery(center: LatLon, radiusM: number): string {
-  const lat = center.lat.toFixed(6);
-  const lon = center.lon.toFixed(6);
-  return (
-    `[out:json][timeout:60];` +
-    `node["natural"="peak"]["name"](around:${Math.round(radiusM)},${lat},${lon});` +
-    `out body;`
-  );
+/** Rectangle géographique (degrés), bords inclus. */
+export interface Bounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+/**
+ * Requête Overpass QL : sommets nommés dans l'union de rectangles donnée.
+ * Plusieurs rectangles en une seule requête (cf. `peaks/cache`) : Overpass
+ * dédoublonne lui-même les nœuds pris dans deux rectangles.
+ */
+export function buildPeaksQuery(areas: readonly Bounds[]): string {
+  const fmt = (deg: number) => deg.toFixed(6);
+  const statements = areas
+    .map(
+      (b) =>
+        `node["natural"="peak"]["name"](${fmt(b.south)},${fmt(b.west)},${fmt(b.north)},${fmt(b.east)});`,
+    )
+    .join('');
+  return `[out:json][timeout:60];(${statements});out body;`;
 }
 
 /**

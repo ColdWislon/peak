@@ -1,84 +1,199 @@
-import type { LatLon } from '../geo';
+import { haversineDistance, type LatLon } from '../geo';
+import { cellKey, cellsCoveringDisc, cellOf, cellRectangles, type Cell } from './cells';
 import type { Peak } from './index';
-import { fetchPeaksAround } from './overpass';
+import { fetchPeaksIn } from './overpass';
 
 /**
- * Cache IndexedDB des réponses Overpass (décision n° 5 du PLAN.md) : soulage
- * l'API publique et rend les points de vue déjà visités instantanés.
+ * Données locales de sommets (décision n° 5 du PLAN.md) : le globe est
+ * découpé en cellules fixes (`peaks/cells`), chacune chargée d'Overpass au
+ * plus une fois par semaine puis conservée en mémoire ET en IndexedDB.
+ * Un point de vue n'interroge le réseau que pour les cellules de son disque
+ * qu'on n'a pas encore — un pas du suivi GPS, un glissé de carte ou un retour
+ * sur un massif visité ne rechargent rien. Sans réseau, des cellules périmées
+ * valent mieux que rien : elles sont servies si Overpass ne répond pas.
  * Toute erreur de cache dégrade silencieusement vers le réseau.
  */
 
 const DB_NAME = 'cimes';
-const STORE = 'overpass';
+const DB_VERSION = 2;
+const STORE = 'sommets-cellules';
+const LEGACY_STORE = 'overpass';
 const TTL_MS = 7 * 24 * 3600 * 1000;
+/** Cellules gardées en mémoire (au-delà, les plus anciennes repartent en IndexedDB). */
+const MAX_MEMORY_CELLS = 400;
 
-interface CacheEntry {
+interface CellEntry {
   key: string;
   storedAt: number;
   peaks: Peak[];
 }
 
+const memory = new Map<string, CellEntry>();
+const inflight = new Map<string, Promise<void>>();
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        request.result.createObjectStore(STORE, { keyPath: 'key' });
-      }
+      const db = request.result;
+      if (db.objectStoreNames.contains(LEGACY_STORE)) db.deleteObjectStore(LEGACY_STORE);
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'key' });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onerror = () => reject(request.error ?? new Error('IndexedDB inaccessible'));
   });
+  dbPromise.catch(() => {
+    dbPromise = null;
+  });
+  return dbPromise;
 }
 
-function readEntry(db: IDBDatabase, key: string): Promise<CacheEntry | undefined> {
+function readEntries(db: IDBDatabase, keys: readonly string[]): Promise<CellEntry[]> {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
-    request.onsuccess = () => resolve(request.result as CacheEntry | undefined);
-    request.onerror = () => reject(request.error ?? new Error('Lecture cache impossible'));
+    const store = db.transaction(STORE, 'readonly').objectStore(STORE);
+    const found: CellEntry[] = [];
+    let pending = keys.length;
+    if (pending === 0) resolve(found);
+    for (const key of keys) {
+      const request = store.get(key);
+      request.onsuccess = () => {
+        if (request.result) found.push(request.result as CellEntry);
+        if (--pending === 0) resolve(found);
+      };
+      request.onerror = () => reject(request.error ?? new Error('Lecture cache impossible'));
+    }
   });
 }
 
-function writeEntry(db: IDBDatabase, entry: CacheEntry): Promise<void> {
+function writeEntries(db: IDBDatabase, entries: readonly CellEntry[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readwrite').objectStore(STORE).put(entry);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error ?? new Error('Écriture cache impossible'));
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (const entry of entries) store.put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('Écriture cache impossible'));
+    tx.onabort = () => reject(tx.error ?? new Error('Écriture cache annulée'));
   });
 }
 
-function cacheKey(center: LatLon, radiusM: number): string {
-  return `peaks:${center.lat.toFixed(3)}:${center.lon.toFixed(3)}:${Math.round(radiusM)}`;
+function remember(entry: CellEntry): void {
+  memory.delete(entry.key); // réinsertion en fin : ordre = ancienneté d'usage
+  memory.set(entry.key, entry);
+  while (memory.size > MAX_MEMORY_CELLS) {
+    const oldest = memory.keys().next().value;
+    if (oldest === undefined) break;
+    memory.delete(oldest);
+  }
 }
 
-/** Sommets autour d'un point, servis du cache si frais, sinon d'Overpass. */
+function recall(key: string): CellEntry | undefined {
+  const entry = memory.get(key);
+  if (entry) remember(entry);
+  return entry;
+}
+
+/** Charge d'Overpass les cellules données et les range en mémoire et en IndexedDB. */
+async function fetchCells(
+  cells: readonly Cell[],
+  fetcher: typeof fetchPeaksIn,
+  now: number,
+): Promise<void> {
+  const peaks = await fetcher(cellRectangles(cells));
+  const grouped = new Map<string, CellEntry>();
+  for (const cell of cells) {
+    const key = cellKey(cell);
+    grouped.set(key, { key, storedAt: now, peaks: [] });
+  }
+  for (const peak of peaks) {
+    grouped.get(cellKey(cellOf(peak)))?.peaks.push(peak);
+  }
+  const entries = [...grouped.values()];
+  for (const entry of entries) remember(entry);
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      await writeEntries(await openDb(), entries);
+    } catch {
+      // Tant pis pour la persistance, les cellules sont en mémoire.
+    }
+  }
+}
+
+/**
+ * Sommets à moins de `radiusM` de `center`, servis des données locales ;
+ * seules les cellules manquantes ou périmées sont demandées à Overpass, en
+ * une requête, partagée avec les appels concurrents qui les attendent aussi.
+ */
 export async function peaksAround(
   center: LatLon,
   radiusM: number,
-  fetcher: typeof fetchPeaksAround = fetchPeaksAround,
+  fetcher: typeof fetchPeaksIn = fetchPeaksIn,
+  now: () => number = Date.now,
 ): Promise<Peak[]> {
-  const key = cacheKey(center, radiusM);
-  const hasIdb = typeof indexedDB !== 'undefined';
+  const cells = cellsCoveringDisc(center, radiusM);
+  const keys = cells.map(cellKey);
+  const isFresh = (entry: CellEntry | undefined) =>
+    entry !== undefined && now() - entry.storedAt < TTL_MS;
 
-  if (hasIdb) {
+  // 1. Mémoire, puis IndexedDB pour ce qui n'y est pas (périmé compris : il
+  //    servira de secours si le réseau manque).
+  const notInMemory = keys.filter((key) => !isFresh(memory.get(key)));
+  if (notInMemory.length > 0 && typeof indexedDB !== 'undefined') {
     try {
-      const db = await openDb();
-      const entry = await readEntry(db, key);
-      if (entry && Date.now() - entry.storedAt < TTL_MS) return entry.peaks;
+      for (const entry of await readEntries(await openDb(), notInMemory)) {
+        const current = memory.get(entry.key);
+        if (!current || current.storedAt < entry.storedAt) remember(entry);
+      }
     } catch {
       // Cache indisponible : on passe au réseau.
     }
   }
 
-  const peaks = await fetcher(center, radiusM);
+  // 2. Réseau pour les cellules manquantes, une seule fois par cellule même
+  //    si plusieurs points de vue les attendent en même temps.
+  const missing = cells.filter((cell) => !isFresh(memory.get(cellKey(cell))));
+  const toFetch = missing.filter((cell) => !inflight.has(cellKey(cell)));
+  if (toFetch.length > 0) {
+    const promise = fetchCells(toFetch, fetcher, now());
+    for (const cell of toFetch) inflight.set(cellKey(cell), promise);
+    void promise
+      .catch(() => {})
+      .finally(() => {
+        for (const cell of toFetch) {
+          if (inflight.get(cellKey(cell)) === promise) inflight.delete(cellKey(cell));
+        }
+      });
+  }
+  const awaited = new Set(missing.map((cell) => inflight.get(cellKey(cell))));
+  try {
+    await Promise.all(awaited);
+  } catch (error) {
+    // Overpass injoignable : les cellules périmées font l'affaire, si on les a toutes.
+    if (!keys.every((key) => memory.has(key))) throw error;
+  }
 
-  if (hasIdb) {
-    try {
-      const db = await openDb();
-      await writeEntry(db, { key, storedAt: Date.now(), peaks });
-    } catch {
-      // Tant pis pour le cache, le résultat réseau est déjà là.
+  // 3. Assemblage : un sommet appartient à une seule cellule, pas de doublon.
+  const result: Peak[] = [];
+  for (const key of keys) {
+    const entry = recall(key);
+    if (!entry) continue;
+    for (const peak of entry.peaks) {
+      if (haversineDistance(center, peak) <= radiusM) result.push(peak);
     }
   }
-  return peaks;
+  return result;
+}
+
+/** Vide la couche mémoire (tests). */
+export function resetPeaksMemoryCache(): void {
+  memory.clear();
+  inflight.clear();
 }

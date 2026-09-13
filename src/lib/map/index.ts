@@ -2,8 +2,9 @@ import { metersPerPixel } from '../terrain/tiles';
 
 /**
  * Aides pures du mode carte : quel rayon de recherche de sommets pour la vue
- * courante, arrondi pour que le cache IndexedDB soit réutilisé entre deux
- * déplacements voisins.
+ * courante, arrondi pour que le jeu de marqueurs reste stable entre deux
+ * déplacements voisins (les sommets eux-mêmes viennent des cellules locales
+ * de `peaks/cache`, indifférentes au rayon).
  */
 
 /** Rayon (m) couvrant la demi-diagonale du viewport à ce zoom/latitude. */

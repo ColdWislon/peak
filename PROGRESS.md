@@ -498,3 +498,20 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       « Oublier l'étalonnage » efface aussi l'historique, et ⚙ annonce le nombre de mesures.
       Le journal de calibrage note l'amplitude de crête, l'optique lissée et le nombre de
       mesures.
+- [x] Données locales de sommets, pour ne plus recharger Overpass à chaque point de vue. Le
+      cache ne stockait que la réponse d'un couple (centre à 100 m près, rayon) : chaque pas du
+      suivi GPS, chaque glissé de carte et chaque changement de rayon relançaient une requête
+      complète de 75 km. Désormais le globe est découpé en cellules fixes de 0,25°
+      (`lib/peaks/cells`, testé) : un disque demandé = ses cellules ; celles qu'on a déjà (mémoire
+      puis IndexedDB, magasin `sommets-cellules`, base passée en v2 avec suppression de l'ancien
+      magasin) sont servies telles quelles, seules les manquantes ou périmées (7 jours) partent
+      vers Overpass, regroupées en rectangles de cellules contiguës dans UNE requête (union de
+      `bbox`, `buildPeaksQuery` prend une liste de rectangles). Les appels concurrents qui
+      attendent les mêmes cellules partagent la requête en vol ; sans réseau, des cellules
+      périmées sont servies plutôt qu'une erreur (massifs visités utilisables hors-ligne).
+      Chaque sommet appartient à une seule cellule : pas de doublon à l'assemblage, filtré au
+      rayon par distance orthodromique. Testé (`cache.test.ts`) : pas de 40 m et rayon réduit sans
+      requête, déplacement de 20 km → bande de cellules seulement (< la moitié de l'aire initiale),
+      retour au départ gratuit, requête partagée, expiration, secours périmé, erreur propagée sans
+      empoisonner la suite. Vérifié dans Chromium sur le serveur de dev : migration v1→v2, 47
+      cellules écrites pour Chamonix à 75 km, rechargement de page servi d'IndexedDB sans réseau.
