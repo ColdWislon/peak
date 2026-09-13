@@ -458,3 +458,24 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       du défaut, arrêté dès qu'un lieu est choisi (lien, recherche, carte, sommet), un toucher
       le rend. Refus de la géolocalisation : suivi coupé et message ; délai ou signal perdu :
       on continue d'écouter. Rapport de débogage : `suiviPosition`, `dernierReleve`.
+- [x] Rapport terrain n° 9 (capture depuis Cognin, Bauges au cap 49°, « le FOV ne semble pas
+      bon ») : l'horizon tracé colle à droite et passe 35 à 70 px sous la crête à gauche. Ce
+      n'est pas l'optique (le défaut 55° contre les 51,5–53,5° mesurés vaut 9 px au plus)
+      mais le POINT DE VUE : source « carte » à 1,5 km des relevés GPS du journal — un
+      « Panorama ici » pris sur la carte, puis retour en caméra, et le suivi coupé par la
+      règle « un lieu choisi prime ». À 7 km des falaises, 1,5 km déplacent la crête de 2 à
+      4°, plus à gauche qu'à droite (parallaxe). Corrigé : en mode Viser le suivi GPS est
+      actif d'office quelle que soit l'origine du point de vue à l'entrée (la caméra filme
+      d'où l'on est) ; seul un lieu choisi PENDANT la visée l'arrête. La légende de capture
+      annonce désormais l'écart entre le dernier relevé GPS et le point de vue (« · GPS à
+      1,5 km », testé) — le premier chiffre à lire quand l'horizon ne colle pas. Second
+      défaut, décisif : le recalage automatique était refusé (« horizon non détecté »,
+      confiance médiane 0). Rejoué sur la photo : coupure ligne 12 sur 111, en plein ciel.
+      Le ciel dégagé pâlit et perd son bleu vers l'horizon (dominante bleue de 66 à 50) et
+      le critère « perte de bleu de 18 % par rapport au haut de l'image » prenait ce dégradé
+      pour une crête. Le détecteur compare maintenant chaque ligne au ciel juste au-dessus
+      d'elle (référence glissante de 7 lignes) et une ligne plus claire n'est jamais un
+      horizon (test : ciel dégradé −42 % de bleu, crête brumeuse retrouvée à ±1,5 px ; sur
+      la photo réelle, colonnes sans étiquette retrouvées sur la crête). Enfin, les
+      « TypeError: Load failed » en série du journal (réseau mobile) : le chargement
+      relief + sommets réessaie seul toutes les 20 s en gardant les repères posés.

@@ -120,6 +120,12 @@ export interface SnapshotAim {
   viewpointSource: ViewpointSource;
   /** Altitude de l'œil (m) tirée du relief au point de vue. */
   eyeElevationM: number;
+  /**
+   * Distance (m) entre le dernier relevé GPS et le point de vue, null sans
+   * relevé. Une caméra vise d'où elle est : un écart trahit un point de vue
+   * hérité de la carte ou d'une recherche (rapport terrain n° 9 : 1,5 km).
+   */
+  gpsGapM: number | null;
   headingDeg: number;
   pitchDeg: number;
   headingOffsetDeg: number;
@@ -182,7 +188,8 @@ export function snapshotCaption(aim: SnapshotAim): string[] {
   return [
     `Cimes · ${stamp} · point de vue ${aim.viewpoint.lat.toFixed(4)}, ` +
       `${aim.viewpoint.lon.toFixed(4)} (${VIEWPOINT_SOURCE_FR[aim.viewpointSource]})` +
-      ` · œil ${Math.round(aim.eyeElevationM)} m`,
+      ` · œil ${Math.round(aim.eyeElevationM)} m` +
+      gpsGapText(aim.gpsGapM),
     `cap ${num(aim.headingDeg)}° · assiette ${sign(aim.pitchDeg)}` +
       ` · recalage ${sign(aim.headingOffsetDeg)} / ${sign(aim.pitchOffsetDeg)}`,
     `FOV vue ${num(aim.screenFovDeg, 1)}° · capteur ${num(aim.shortFovDeg, 1)}°` +
@@ -198,6 +205,15 @@ export function snapshotCaption(aim: SnapshotAim): string[] {
       (PEAKS_STATUS_FR[aim.peaksStatus] ? ` (${PEAKS_STATUS_FR[aim.peaksStatus]})` : ''),
   ];
 }
+
+/** « · GPS à 1,5 km » quand le point de vue n'est pas là où est le téléphone. */
+function gpsGapText(gapM: number | null): string {
+  if (gapM === null || gapM < GPS_GAP_NOTABLE_M) return '';
+  return gapM >= 1000 ? ` · GPS à ${num(gapM / 1000, 1)} km` : ` · GPS à ${Math.round(gapM)} m`;
+}
+
+/** En deçà, l'écart GPS ↔ point de vue est du bruit de récepteur : tu. */
+const GPS_GAP_NOTABLE_M = 100;
 
 /** Verdict du dernier recalage, en clair : dit s'il a mordu et sur quoi. */
 function calibrationLine(calibration: SnapshotCalibration | null): string {

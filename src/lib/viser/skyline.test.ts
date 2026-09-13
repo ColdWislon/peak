@@ -232,6 +232,35 @@ describe('detectImageSkyline', () => {
     }
   });
 
+  it('ne coupe pas dans un ciel qui pâlit vers l’horizon', () => {
+    // Rapport terrain n° 9 : ciel dégagé, dominante bleue de 66 à 50 et
+    // luminance en hausse en descendant vers l'horizon. La perte de bleu
+    // mesurée depuis le haut de l'image prenait ce dégradé pour une crête
+    // (coupure ligne 12 sur 111, confiance nulle, recalage refusé).
+    const w = 30;
+    const h = 90;
+    const crete = 60;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        const t = Math.min(1, y / crete);
+        // Ciel : de (110,150,230) en haut à (170,200,240) à l'horizon — bleu − rouge
+        // de 120 à 70 (−42 %), luminance de 145 à 187. Puis crête brumeuse.
+        const bande = y < crete ? [110 + 60 * t, 150 + 50 * t, 230 + 10 * t] : [95, 105, 125];
+        rgba[o] = bande[0]!;
+        rgba[o + 1] = bande[1]!;
+        rgba[o + 2] = bande[2]!;
+        rgba[o + 3] = 255;
+      }
+    }
+    const detected = detectImageSkyline(rgba, w, h);
+    for (let x = 0; x < w; x++) {
+      expect(Math.abs(detected.rows[x]! - crete)).toBeLessThanOrEqual(1.5);
+      expect(detected.confidence[x]!).toBeGreaterThan(0.35);
+    }
+  });
+
   it('se replie sur le contraste maximal quand le haut n’est pas du ciel', () => {
     // Téléphone incliné vers le bas : la bande de référence est du terrain
     // texturé — descendre depuis elle n'aurait aucun sens.

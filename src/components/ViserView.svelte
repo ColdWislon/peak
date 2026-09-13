@@ -14,7 +14,13 @@
     type SnapshotCalibration,
   } from '../lib/debug/snapshot';
   import { favorites } from '../lib/favorites/store.svelte';
-  import { normalizeBearing, radToDeg, signedDeltaDeg, type LatLon } from '../lib/geo';
+  import {
+    haversineDistance,
+    normalizeBearing,
+    radToDeg,
+    signedDeltaDeg,
+    type LatLon,
+  } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import {
     estimateLabelLength,
@@ -77,6 +83,8 @@
   /** Zoom numérique : ×1 (optique nue) à ×4 (au-delà, bouillie de pixels). */
   const ZOOM_MIN = 1;
   const ZOOM_MAX = 4;
+  /** Relief ou sommets injoignables (réseau mobile) : on réessaie tout seul. */
+  const RETRY_MS = 20_000;
 
   let {
     viewpoint,
@@ -116,17 +124,20 @@
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
   /**
    * Suivi continu de la position : la caméra filme d'où l'on est, le point de
-   * vue suit donc le GPS tant que la visée tourne. Actif d'emblée sauf quand
-   * l'utilisateur a choisi un autre lieu (lien, recherche, carte, sommet) ;
-   * un lieu choisi ensuite l'arrête, le bouton ⌖ le rend.
+   * vue suit donc le GPS tant que la visée tourne — quelle que soit l'origine
+   * du point de vue à l'entrée (rapport terrain n° 9 : un « Panorama ici »
+   * pris sur la carte avait laissé la visée 1,5 km à côté du téléphone). Un
+   * lieu choisi PENDANT la visée (recherche, carte, sommet) l'arrête — c'est
+   * un choix explicite dans ce mode ; le bouton ⌖ le rend.
    */
-  // svelte-ignore state_referenced_locally
-  let following = $state(viewpointSource === 'gps' || viewpointSource === 'defaut');
+  let following = $state(true);
   let positionMessage = $state<string | null>(null);
   let positionTimer: ReturnType<typeof setTimeout> | undefined;
   /** Horodatage du dernier déplacement suivi (cadence) et dernier relevé reçu. */
   let lastMoveMs: number | null = null;
   let lastFix: Record<string, unknown> | null = null;
+  let lastFixPosition: LatLon | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   /** Le prochain rechargement vient du suivi : garder les repères à l'écran. */
   let silentReload = false;
   let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
@@ -286,6 +297,7 @@
    * un pas de 30 m ne doit pas faire clignoter les étiquettes.
    */
   async function loadData(silent = false): Promise<void> {
+    clearTimeout(retryTimer);
     if (!silent) {
       peaksStatus = 'searching';
       labels = [];
@@ -354,6 +366,12 @@
     } catch (error) {
       logDebug('viser:erreur', { etape: 'donnees', detail: String(error) });
       peaksStatus = 'error';
+      // « TypeError: Load failed » en série dans le rapport terrain n° 9 :
+      // réseau mobile capricieux. Le bouton reste, mais on réessaie sans lui,
+      // en gardant les repères déjà posés s'il y en a.
+      retryTimer = setTimeout(() => {
+        if (phase === 'running' && peaksStatus === 'error') void loadData(true);
+      }, RETRY_MS);
     }
   }
 
@@ -451,6 +469,7 @@
       timeMs: position.timestamp,
     };
     const move = shouldMoveViewpoint({ lat: viewpoint.lat, lon: viewpoint.lon }, fix, lastMoveMs);
+    lastFixPosition = { lat: fix.lat, lon: fix.lon };
     lastFix = { lat: fix.lat, lon: fix.lon, precisionM: Math.round(fix.accuracyM), suivi: move };
     if (!move) return;
     lastMoveMs = fix.timeMs;
@@ -753,6 +772,9 @@
       viewpoint: { lat: viewpoint.lat, lon: viewpoint.lon },
       viewpointSource,
       eyeElevationM: eyeElevation,
+      gpsGapM: lastFixPosition
+        ? haversineDistance(lastFixPosition, { lat: viewpoint.lat, lon: viewpoint.lon })
+        : null,
       headingDeg: normalizeBearing(aim.heading + headingOffset),
       pitchDeg: aim.pitch + pitchOffset,
       headingOffsetDeg: headingOffset,
@@ -818,6 +840,7 @@
         sh: Math.round(crop.sh),
       },
       pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon, source: viewpointSource },
+      ecartGpsM: aimInfo.gpsGapM === null ? null : Math.round(aimInfo.gpsGapM),
       octets: blob.size,
     };
     lastCapture = meta;
@@ -971,6 +994,7 @@
       clearTimeout(calibTimer);
       clearTimeout(hintTimer);
       clearTimeout(positionTimer);
+      clearTimeout(retryTimer);
       container.removeEventListener('wheel', onWheel);
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
@@ -996,10 +1020,18 @@
     if (phase === 'running') void loadData(silent);
   });
 
-  // Un lieu choisi (lien, recherche, carte, sommet) prime sur le GPS : le
-  // suivi s'arrête, sans quoi il ramènerait aussitôt le point de vue ici.
+  // Un lieu choisi PENDANT la visée (recherche, carte, sommet) prime sur le
+  // GPS : le suivi s'arrête, sans quoi il ramènerait aussitôt le point de vue
+  // ici. L'origine du point de vue À L'ENTRÉE ne compte pas : la caméra
+  // filme d'où l'on est.
+  let sourceSeen = false;
   $effect(() => {
-    if (viewpointSource !== 'gps' && viewpointSource !== 'defaut') following = false;
+    void viewpointSource;
+    if (!sourceSeen) {
+      sourceSeen = true;
+      return;
+    }
+    if (viewpointSource !== 'gps') following = false;
   });
 
   // Suivi GPS : une surveillance tant que la visée tourne et que le suivi est actif.
@@ -1118,7 +1150,7 @@
         {#if peaksStatus === 'searching'}
           {fr.peaks.searching}
         {:else if peaksStatus === 'error'}
-          {fr.peaks.unavailable}
+          {fr.viser.dataError}
           <button onclick={() => void loadData()}>{fr.peaks.retry}</button>
         {:else if peaksStatus === 'empty'}
           {fr.peaks.none}

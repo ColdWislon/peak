@@ -27,6 +27,7 @@ const AIM: SnapshotAim = {
   viewpoint: { lat: 45.58931, lon: 5.90127 },
   viewpointSource: 'gps',
   eyeElevationM: 412.4,
+  gpsGapM: 12,
   headingDeg: 95.4,
   pitchDeg: -3.42,
   headingOffsetDeg: 6,
@@ -78,6 +79,10 @@ describe('capture de débogage', () => {
     expect(lines[0]).toContain('30/08 11:18');
     expect(lines[0]).toContain('point de vue 45.5893, 5.9013 (GPS)');
     expect(lines[0]).toContain('œil 412 m');
+    expect(lines[0]).not.toContain('GPS à'); // 12 m : bruit de récepteur, tu
+    expect(snapshotCaption({ ...AIM, gpsGapM: 1480 })[0]).toContain('GPS à 1,5 km');
+    expect(snapshotCaption({ ...AIM, gpsGapM: 340 })[0]).toContain('GPS à 340 m');
+    expect(snapshotCaption({ ...AIM, gpsGapM: null })[0]).not.toContain('GPS à');
     expect(lines[1]).toContain('cap 95°');
     expect(lines[1]).toContain('assiette −3,4°');
     expect(lines[1]).toContain('recalage +6,0° / −1,2°');
