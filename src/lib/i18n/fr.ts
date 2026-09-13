@@ -60,6 +60,7 @@ export const fr = {
     followPositionOn: 'Position suivie en continu — toucher pour arrêter',
     positionMoved: 'Position mise à jour',
     positionError: 'Position introuvable — vérifiez les autorisations',
+    dataError: 'Relief ou sommets indisponibles — nouvel essai dans 20 s',
     lockHint: 'Touchez l’image pour figer la visée',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
     calibrateAuto: 'Recaler sur l’horizon',

@@ -303,6 +303,8 @@ const CONFIRM_ROWS = 3;
 const MIN_SKY_LUMA = 60;
 /** Écart max dans la bande de référence : au-delà, c'est texturé (du terrain). */
 const MAX_SKY_SPREAD = 30;
+/** Une ligne plus claire que le ciel au-dessus d'elle (à 3 % près) reste du ciel. */
+const SKY_BRIGHTER_TOLERANCE = 0.03;
 
 export function detectImageSkyline(
   rgba: Uint8ClampedArray | Uint8Array,
@@ -327,6 +329,11 @@ export function detectImageSkyline(
     const slice = Array.from(band.subarray(0, count)).sort((a, b) => a - b);
     return slice[Math.floor(count / 2)]!;
   };
+  /** Médiane des lignes [from, to) — la fenêtre de ciel juste au-dessus d'une ligne. */
+  const medianOf = (values: Float32Array, from: number, to: number): number => {
+    const slice = Array.from(values.subarray(from, to)).sort((a, b) => a - b);
+    return slice[Math.floor(slice.length / 2)]!;
+  };
 
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
@@ -341,7 +348,6 @@ export function detectImageSkyline(
     }
 
     const skyLuma = median(luma, refRows);
-    const skyBlue = median(blueness, refRows);
     let spread = 0;
     for (let y = 0; y < refRows; y++) {
       spread = Math.max(spread, Math.abs(luma[y]! - skyLuma));
@@ -350,16 +356,24 @@ export function detectImageSkyline(
 
     let boundary = -1;
     if (skyLike) {
-      // Seul l'assombrissement (ou la perte de bleu) compte : un nuage plus
-      // clair que le ciel n'est pas un horizon.
-      const leftSky = (y: number): boolean =>
-        (skyLuma - luma[y]!) / Math.max(30, skyLuma) > SKY_DEVIATION ||
-        (skyBlue - blueness[y]!) / Math.max(20, skyBlue) > SKY_DEVIATION;
+      // Référence GLISSANTE : le ciel pâlit et perd son bleu en descendant
+      // vers l'horizon (rapport terrain n° 9 : dominante bleue de 66 à 50 sur
+      // un ciel dégagé, coupure prise en plein ciel avec confiance nulle).
+      // Chaque ligne est comparée au ciel juste au-dessus d'elle : le dégradé
+      // naturel reste sous le seuil, une crête le dépasse d'un coup. Et seul
+      // l'assombrissement compte : une ligne plus claire (ciel pâle, nuage)
+      // n'est jamais un horizon, même moins bleue.
+      const leftSky = (y: number, refLuma: number, refBlue: number): boolean =>
+        (refLuma - luma[y]!) / Math.max(30, refLuma) > SKY_DEVIATION ||
+        ((refBlue - blueness[y]!) / Math.max(20, refBlue) > SKY_DEVIATION &&
+          luma[y]! <= refLuma * (1 + SKY_BRIGHTER_TOLERANCE));
       for (let y = 1; y < height - 1; y++) {
-        if (!leftSky(y)) continue;
+        const refLuma = medianOf(luma, Math.max(0, y - refRows), y);
+        const refBlue = medianOf(blueness, Math.max(0, y - refRows), y);
+        if (!leftSky(y, refLuma, refBlue)) continue;
         let confirmed = true;
         for (let k = 1; k <= CONFIRM_ROWS && y + k < height; k++) {
-          if (!leftSky(y + k)) {
+          if (!leftSky(y + k, refLuma, refBlue)) {
             confirmed = false;
             break;
           }
