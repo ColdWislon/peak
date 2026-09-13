@@ -30,6 +30,17 @@ a été validée explicitement.
 > visibilité/étiquettes existant, calibration boussole au doigt, repli glissé sans capteurs).
 > L'app native reste une option future si la précision des capteurs web s'avère insuffisante.
 
+> **Amendement (2026-09-13, validé)** — décision n° 13 : le style « sombre alpin » est
+> remplacé par un **habillage clair façon PeakVisor** (capture d'écran fournie comme
+> référence) : chrome en boutons ronds blancs à icônes turquoise flottant sur la vue (menu,
+> recherche, 3D, panorama/caméra), pilule rouge « Débloquer le suivi » quand la visée est
+> figée, étiquettes en **capsules blanches couchées à 45°** (nom, puis altitude sur fond
+> turquoise) reliées à la pointe du sommet par un trait de rappel vertical, horizon calculé
+> en trait fin sombre et crêtes en blanc, fiche de sommet en **feuille blanche** au bas de
+> l'écran (poignée, altitude, distance et direction, favori, itinéraires, téléportation,
+> carte). Les variables de thème (`src/app.css`) restent le seul point de réglage des
+> couleurs.
+
 Arbitrages par défaut (modifiables à tout moment) :
 
 - Point de vue par défaut : Chamonix, face au massif du Mont-Blanc (45.9237, 6.8694).

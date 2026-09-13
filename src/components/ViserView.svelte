@@ -4,7 +4,6 @@
   import {
     canvasToBlob,
     captionLayout,
-    deliverSnapshot,
     fitSnapshot,
     registerSnapshotSource,
     snapshotCaption,
@@ -14,9 +13,21 @@
     type SnapshotAim,
     type SnapshotCalibration,
   } from '../lib/debug/snapshot';
+  import { favorites } from '../lib/favorites/store.svelte';
   import { normalizeBearing, radToDeg, signedDeltaDeg, type LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
-  import { placeLabels, toCandidates, type LabelCandidate, type PlacedLabel } from '../lib/labels';
+  import {
+    estimateLabelLength,
+    LABEL_ANGLE_DEG,
+    LABEL_LEADER_MIN,
+    LABEL_THICKNESS,
+    placeLabels,
+    projectPeaks,
+    toCandidates,
+    type LabelCandidate,
+    type PeakDot,
+    type PlacedLabel,
+  } from '../lib/labels';
   import { topPeaksFrom, type Peak } from '../lib/peaks';
   import { peaksAround } from '../lib/peaks/cache';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
@@ -24,7 +35,6 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { AimFilter } from '../lib/viser/aimFilter';
-  import { compassTicks, type CompassTick } from '../lib/viser/compass';
   import {
     detectImageSkyline,
     isMatchReliable,
@@ -40,7 +50,7 @@
     VisibilityResponse,
   } from '../lib/visibility/protocol';
   import type { ViewpointSource } from '../lib/viewpoint/url';
-  import CompassRibbon from './CompassRibbon.svelte';
+  import PeakCard from './PeakCard.svelte';
   import PeakLabels from './PeakLabels.svelte';
 
   /** Mêmes champs d'altitude que le panorama (proche z12, lointain z10). */
@@ -67,17 +77,39 @@
   const ZOOM_MIN = 1;
   const ZOOM_MAX = 4;
 
-  let { viewpoint, viewpointSource }: { viewpoint: LatLon; viewpointSource: ViewpointSource } =
-    $props();
+  let {
+    viewpoint,
+    viewpointSource,
+    onteleport,
+    onmap,
+  }: {
+    viewpoint: LatLon;
+    viewpointSource: ViewpointSource;
+    /** « Téléporter » depuis la fiche : le panorama depuis ce sommet. */
+    onteleport: (target: LatLon) => void;
+    /** « Voir sur la carte » depuis la fiche. */
+    onmap: (target: LatLon) => void;
+  } = $props();
 
   let container: HTMLDivElement;
   let video: HTMLVideoElement;
   let phase = $state<'idle' | 'starting' | 'running' | 'error'>('idle');
   let errorMessage = $state<string | null>(null);
   let sensorless = $state(false);
-  let heading = $state(0);
   let labels = $state<PlacedLabel[]>([]);
-  let compass = $state<CompassTick[]>([]);
+  /** Sommets visibles dans le cadre, étiquetés ou non : un point sur la crête. */
+  let dots = $state<PeakDot[]>([]);
+  /** Sommet dont la fiche est ouverte (étiquette touchée). */
+  let selected = $state<PlacedLabel | null>(null);
+  /**
+   * Suivi figé : les capteurs sont ignorés, l'image et les repères restent en
+   * place — pour lire une fiche ou comparer à l'aise. Une étiquette touchée
+   * fige la visée ; « Débloquer le suivi » (ou un toucher sur l'image) la rend.
+   */
+  let locked = $state(false);
+  /** Conseil de recalage : affiché quelques secondes après le démarrage. */
+  let hintVisible = $state(false);
+  let hintTimer: ReturnType<typeof setTimeout> | undefined;
   let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
 
   let stream: MediaStream | undefined;
@@ -103,10 +135,7 @@
   let calibrating = $state(false);
   let calibMessage = $state<string | null>(null);
   let calibTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Capture de débogage : état du bouton, message et trace du dernier envoi. */
-  let capturing = $state(false);
-  let captureMessage = $state<string | null>(null);
-  let captureTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Capture de débogage (déclenchée depuis le menu ≡) : trace du dernier envoi. */
   let lastCapture: Record<string, unknown> | null = null;
   /** Verdict du dernier recalage tenté : gravé dans la capture de débogage. */
   let lastCalibration: SnapshotCalibration | null = null;
@@ -172,7 +201,6 @@
       relayoutQueued = false;
       if (!container) return;
       const headingNow = normalizeBearing(aim.heading + headingOffset);
-      heading = headingNow;
       const view = {
         headingDeg: headingNow,
         pitchDeg: aim.pitch + pitchOffset,
@@ -181,7 +209,7 @@
         height: container.clientHeight,
       };
       labels = placeLabels(candidates, view);
-      compass = compassTicks(view);
+      dots = projectPeaks(candidates, view);
       if (demSkyline) {
         horizonScreen = skylineScreenPoints(demSkyline, SKYLINE_STEP_DEG, view);
         horizonPoints = horizonScreen.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
@@ -221,6 +249,7 @@
     if (!gotSensor) logDebug('viser:capteurs', lastRawOrientation);
     gotSensor = true;
     sensorless = false;
+    if (locked) return; // suivi figé : l'image reste où elle est
     const next = aimFilter.update({
       alphaDeg: event.alpha,
       betaDeg: event.beta,
@@ -353,7 +382,32 @@
     // charge — l'appeler ici aussi doublait chargement et worker (deux
     // « viser:donnees » dans les rapports de débogage).
     phase = 'running';
-    relayout(); // La boussole s'affiche sans attendre le premier événement capteur.
+    showHint();
+    relayout(); // Les repères se posent sans attendre le premier événement capteur.
+  }
+
+  function showHint(): void {
+    hintVisible = true;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => (hintVisible = false), 8000);
+  }
+
+  /** Une étiquette touchée : sa fiche s'ouvre et la visée se fige. */
+  function select(label: PlacedLabel): void {
+    selected = label;
+    if (!sensorless) locked = true;
+  }
+
+  /** « Débloquer le suivi » : ferme la fiche et rend la visée aux capteurs. */
+  function unlock(): void {
+    selected = null;
+    locked = false;
+  }
+
+  /** Toucher sur l'image (sans glissé) : ferme la fiche, ou fige/rend la visée. */
+  function onTap(): void {
+    if (selected) unlock();
+    else if (!sensorless) locked = !locked;
   }
 
   /** Recalage automatique : aligne l'horizon détecté sur le profil du relief. */
@@ -512,10 +566,7 @@
   function drawHorizon(ctx: CanvasRenderingContext2D, scale: number): void {
     if (horizonScreen.length < 2) return;
     ctx.save();
-    ctx.strokeStyle = '#ff453a'; // même rouge que l'overlay écran
     ctx.lineJoin = 'round';
-    ctx.shadowColor = 'rgb(0 0 0 / 60%)';
-    ctx.shadowBlur = 3 * scale;
     const trace = (points: Array<{ x: number; y: number }>): void => {
       ctx.beginPath();
       points.forEach((point, i) => {
@@ -526,45 +577,71 @@
       });
       ctx.stroke();
     };
-    // Crêtes plus fines et plus discrètes que l'horizon, comme à l'écran.
-    ctx.globalAlpha = 0.6;
+    // Crêtes en blanc, plus fines ; horizon en trait sombre — comme à l'écran.
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = Math.max(1, 1.2 * scale);
     for (const line of ridgeScreen) trace(line);
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = Math.max(1.5, 2 * scale);
+    ctx.strokeStyle = '#111418';
+    ctx.lineWidth = Math.max(1.5, 1.8 * scale);
     trace(horizonScreen);
     ctx.restore();
   }
 
-  /** Étiquettes de sommets : ancre (pointe du sommet) + nom, comme à l'écran. */
+  /** Étiquettes de sommets comme à l'écran : point, trait de rappel, capsule couchée. */
   function drawLabels(ctx: CanvasRenderingContext2D, scale: number): void {
-    const font = Math.max(10, Math.round(13 * scale));
+    const font = Math.max(10, Math.round(16 * scale));
+    const thickness = LABEL_THICKNESS * scale;
+    const angle = (-LABEL_ANGLE_DEG * Math.PI) / 180;
     ctx.save();
-    ctx.font = `${font}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.font = `500 ${font}px system-ui, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
     for (const label of labels) {
       const x = label.x * scale;
       const y = label.y * scale;
-      // Même surélévation qu'à l'écran : le trait s'allonge, la boîte monte.
-      const leader = (14 + label.lift) * scale;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = Math.max(1, scale);
+      // Même surélévation qu'à l'écran : le trait s'allonge, la capsule monte.
+      const leader = (LABEL_LEADER_MIN + label.lift) * scale;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.lineWidth = Math.max(1, 1.5 * scale);
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(x, y - leader);
       ctx.stroke();
-      const text = label.name;
-      const width = ctx.measureText(text).width;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(
-        x - width / 2 - 4 * scale,
-        y - leader - font - 4 * scale,
-        width + 8 * scale,
-        font + 6 * scale,
+      ctx.fillStyle = '#2eb8b3';
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5 * scale, 0, Math.PI * 2);
+      ctx.fill();
+
+      const elevation = `${Math.round(label.elevation).toLocaleString('fr-FR')} m`;
+      const nameWidth = ctx.measureText(label.name).width;
+      const eleWidth = ctx.measureText(elevation).width;
+      const pad = 11 * scale;
+      const nameSegment = nameWidth + pad * 2;
+      const length = Math.max(
+        nameSegment + eleWidth + pad * 2,
+        estimateLabelLength(label.name, label.elevation) * scale,
       );
+      ctx.save();
+      ctx.translate(x, y - leader);
+      ctx.rotate(angle);
       ctx.fillStyle = '#fff';
-      ctx.fillText(text, x, y - leader - 2 * scale);
+      ctx.beginPath();
+      ctx.roundRect(0, -thickness / 2, length, thickness, thickness / 2);
+      ctx.fill();
+      ctx.fillStyle = '#2eb8b3';
+      ctx.beginPath();
+      ctx.roundRect(nameSegment, -thickness / 2, length - nameSegment, thickness, [
+        0,
+        thickness / 2,
+        thickness / 2,
+        0,
+      ]);
+      ctx.fill();
+      ctx.fillStyle = '#17202a';
+      ctx.fillText(label.name, pad, 0);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(elevation, nameSegment + pad, 0);
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -690,34 +767,13 @@
     return { blob, name, width: canvas.width, height: canvas.height, meta };
   }
 
-  /** Bouton « Capture pour Claude » : construit l'image puis la remet. */
-  async function captureView(): Promise<void> {
-    if (capturing) return;
-    capturing = true;
-    clearTimeout(captureTimer);
-    captureMessage = null;
-    try {
-      const snapshot = await buildSnapshot();
-      const delivery = await deliverSnapshot(snapshot);
-      captureMessage =
-        delivery === 'partage'
-          ? fr.viser.captureShared
-          : delivery === 'telechargement'
-            ? fr.viser.captureSaved
-            : fr.viser.captureCancelled;
-    } catch (error) {
-      logDebug('viser:erreur', { etape: 'capture', detail: String(error) });
-      captureMessage = fr.viser.captureFailed;
-    }
-    capturing = false;
-    captureTimer = setTimeout(() => (captureMessage = null), 6000);
-  }
-
   // Glissé un doigt : recalage de la boussole, ou visée complète sans capteurs.
   // Pincement deux doigts : zoom numérique. Molette : idem au bureau.
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  /** Vrai dès que le doigt a bougé : un relâché immobile est un toucher. */
+  let moved = false;
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchStart: { distance: number; zoom: number } | null = null;
 
@@ -735,8 +791,9 @@
   }
 
   function onDown(e: PointerEvent): void {
-    // La capture du pointeur retargetterait le click : ne pas voler les boutons.
-    if ((e.target as HTMLElement | null)?.closest('button')) return;
+    // La capture du pointeur retargetterait le click : ne pas voler les
+    // boutons ni la fiche (qui gère son propre glissé de fermeture).
+    if ((e.target as HTMLElement | null)?.closest('button, a, .card')) return;
     try {
       container.setPointerCapture(e.pointerId);
     } catch {
@@ -745,9 +802,11 @@
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 2) {
       dragging = false;
+      moved = true;
       pinchStart = { distance: pinchDistance(), zoom };
     } else if (pointers.size === 1) {
       dragging = true;
+      moved = false;
       lastX = e.clientX;
       lastY = e.clientY;
     }
@@ -763,6 +822,8 @@
     const degPerPx = currentScreenFov() / Math.max(1, container.clientHeight);
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
+    if (!moved && Math.hypot(dx, dy) < 4) return; // tremblement d'un toucher
+    moved = true;
     lastX = e.clientX;
     lastY = e.clientY;
     if (sensorless) {
@@ -779,8 +840,9 @@
     relayout();
   }
   function onUp(e: PointerEvent): void {
-    pointers.delete(e.pointerId);
+    const tracked = pointers.delete(e.pointerId);
     if (pointers.size < 2) pinchStart = null;
+    if (tracked && !moved && pointers.size === 0 && phase === 'running') onTap();
     const rest = [...pointers.values()][0];
     if (pointers.size === 1 && rest) {
       // Le doigt restant du pincement reprend le glissé sans à-coup.
@@ -806,6 +868,8 @@
       phase,
       sansCapteurs: sensorless,
       capteursRecus: gotSensor,
+      suiviFige: locked,
+      selection: selected?.name ?? null,
       derniereOrientation: lastRawOrientation,
       visee: { cap: Math.round(aim.heading), assiette: Number(aim.pitch.toFixed(1)) },
       recalages: {
@@ -845,7 +909,7 @@
     return () => {
       unregister();
       clearTimeout(calibTimer);
-      clearTimeout(captureTimer);
+      clearTimeout(hintTimer);
       container.removeEventListener('wheel', onWheel);
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
@@ -891,7 +955,7 @@
   <video bind:this={video} playsinline muted style:transform="scale({zoom})"></video>
 
   {#if phase === 'running' && zoom > 1}
-    <div class="zoom-badge" aria-hidden="true">{zoom.toFixed(1).replace('.', ',')}×</div>
+    <div class="zoom-badge pill" aria-hidden="true">{zoom.toFixed(1).replace('.', ',')}×</div>
   {/if}
 
   {#if horizonPoints && phase === 'running'}
@@ -908,36 +972,45 @@
     </svg>
   {/if}
 
-  <PeakLabels {labels} />
+  <PeakLabels
+    {labels}
+    {dots}
+    selectedId={selected?.id ?? null}
+    favoriteIds={favorites.ids}
+    onselect={select}
+  />
 
   {#if phase === 'running'}
-    <CompassRibbon ticks={compass} headingDeg={heading} />
-    <p class="hint">{sensorless ? fr.viser.dragHint : fr.viser.calibrateHint}</p>
+    {#if locked}
+      <button class="unlock" onclick={unlock}>{fr.viser.unlockTracking}</button>
+    {/if}
 
     {#if demSkyline && !sensorless}
-      <button class="calibrate" onclick={autoCalibrate} disabled={calibrating}>
-        ✨ {fr.viser.calibrateAuto}
+      <!-- Sous la colonne de boutons ronds du chrome (menu, recherche, 3D). -->
+      <button
+        class="btn-round calibrate"
+        onclick={autoCalibrate}
+        disabled={calibrating}
+        aria-label={fr.viser.calibrateAuto}
+        title={fr.viser.calibrateAuto}
+      >
+        <!-- Étincelle « auto » : distincte de la crête du bouton Panorama. -->
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="sparkle">
+          <path d="M11 3.5l1.9 5.4 5.4 1.9-5.4 1.9L11 18.1l-1.9-5.4-5.4-1.9 5.4-1.9z" />
+          <path d="M18.5 14.5l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z" />
+        </svg>
       </button>
     {/if}
     {#if calibMessage}
-      <p class="calib-message" role="status">{calibMessage}</p>
+      <p class="calib-message pill" role="status">{calibMessage}</p>
     {/if}
 
-    <!-- Débogage : la capture est le seul accès de Claude à la caméra. -->
-    <button
-      class="capture"
-      onclick={() => void captureView()}
-      disabled={capturing}
-      title={fr.viser.captureTitle}
-    >
-      📸 {fr.viser.capture}
-    </button>
-    {#if captureMessage}
-      <p class="capture-message" role="status">{captureMessage}</p>
+    {#if hintVisible && !selected}
+      <p class="hint">{sensorless ? fr.viser.dragHint : fr.viser.calibrateHint}</p>
     {/if}
 
     {#if peaksStatus !== 'ok' && peaksStatus !== 'idle'}
-      <div class="peaks-status" role="status">
+      <div class="peaks-status pill" role="status">
         {#if peaksStatus === 'searching'}
           {fr.peaks.searching}
         {:else if peaksStatus === 'error'}
@@ -949,6 +1022,10 @@
           {fr.peaks.noneVisible}
         {/if}
       </div>
+    {/if}
+
+    {#if selected}
+      <PeakCard peak={selected} onclose={unlock} {onteleport} {onmap} />
     {/if}
   {:else}
     <div class="veil">
@@ -985,12 +1062,9 @@
   .zoom-badge {
     position: absolute;
     top: 50%;
-    right: calc(0.75rem + var(--safe-right));
+    right: var(--chrome-right);
     transform: translateY(-50%);
-    padding: 0.25rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 62%, transparent);
+    padding: 0.25rem 0.7rem;
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
     pointer-events: none;
@@ -1004,141 +1078,107 @@
     pointer-events: none;
   }
 
+  /* Horizon calculé : trait fin sombre sur la ligne de crête (façon PeakVisor). */
   .horizon polyline {
     fill: none;
-    /* Rouge plutôt que l'accent bleu : se détache du ciel comme des reflets bleutés. */
-    stroke: #ff453a;
+    stroke: #111418;
     stroke-width: 1.5;
     stroke-linejoin: round;
-    opacity: 0.85;
-    filter: drop-shadow(0 0 3px rgb(0 0 0 / 60%));
+    opacity: 0.9;
   }
 
-  /* Crêtes intermédiaires : même rouge, plus fin et plus discret que l'horizon. */
+  /* Crêtes intermédiaires : traits blancs, plus fins. */
   .horizon .ridge {
-    stroke-width: 1;
-    opacity: 0.6;
+    stroke: #fff;
+    stroke-width: 1.2;
+    opacity: 0.9;
+  }
+
+  /* Suivi figé : pilule rouge entre les boutons ronds de la rangée du haut. */
+  .unlock {
+    position: absolute;
+    top: var(--chrome-top);
+    left: 50%;
+    z-index: 5;
+    max-width: calc(100% - 2 * (var(--chrome-left) + var(--round) + 0.6rem));
+    height: var(--round);
+    padding: 0 1.4rem;
+    transform: translateX(-50%);
+    border: none;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font: inherit;
+    font-size: 1.05rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .unlock:hover {
+    background: color-mix(in srgb, var(--danger) 85%, #000);
   }
 
   .calibrate {
     position: absolute;
-    bottom: calc(5.2rem + var(--safe-bottom));
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 0.5rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
-    color: var(--accent);
-    font-size: 0.88rem;
-    cursor: pointer;
+    top: calc(var(--chrome-top) + 3 * (var(--round) + var(--chrome-gap)));
+    left: var(--chrome-left);
+    z-index: 5;
   }
 
-  .calibrate:disabled {
-    opacity: 0.6;
-    cursor: wait;
-  }
-
-  .calibrate:hover:enabled {
-    border-color: var(--accent);
+  .calibrate .sparkle {
+    fill: currentColor;
+    stroke-width: 1;
   }
 
   .calib-message {
     position: absolute;
-    bottom: calc(8rem + var(--safe-bottom));
+    bottom: calc(4.6rem + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-size: 0.82rem;
-    white-space: nowrap;
-    pointer-events: none;
-  }
-
-  .capture {
-    position: absolute;
-    bottom: calc(5.2rem + var(--safe-bottom));
-    right: calc(0.75rem + var(--safe-right));
-    padding: 0.4rem 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
-    color: var(--muted);
-    font-size: 0.78rem;
-    cursor: pointer;
-  }
-
-  .capture:disabled {
-    opacity: 0.6;
-    cursor: wait;
-  }
-
-  .capture:hover:enabled {
-    color: var(--text);
-    border-color: var(--accent);
-  }
-
-  .capture-message {
-    position: absolute;
-    bottom: calc(8.4rem + var(--safe-bottom));
-    right: calc(0.75rem + var(--safe-right));
-    max-width: min(18rem, 70vw);
-    margin: 0;
-    padding: 0.35rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
-    color: var(--text);
-    font-size: 0.78rem;
-    line-height: 1.35;
-    text-align: right;
+    font-size: 0.85rem;
     pointer-events: none;
   }
 
   .hint {
     position: absolute;
-    bottom: calc(2.6rem + var(--safe-bottom));
+    bottom: calc(1.4rem + var(--safe-bottom));
     left: 50%;
     transform: translateX(-50%);
+    max-width: calc(100% - 2rem);
     margin: 0;
-    padding: 0.25rem 0.8rem;
+    padding: 0.3rem 0.9rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    background: rgb(255 255 255 / 82%);
     color: var(--muted);
-    font-size: 0.72rem;
+    font-size: 0.78rem;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     pointer-events: none;
   }
 
   .peaks-status {
     position: absolute;
-    /* Sous le ruban de boussole et son cap chiffré. */
-    top: calc(7.4rem + var(--safe-top));
+    top: calc(var(--chrome-top) + var(--round) + var(--chrome-gap));
     left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
     color: var(--muted);
-    font-size: 0.8rem;
-    white-space: nowrap;
+    font-size: 0.82rem;
   }
 
   .peaks-status button {
-    padding: 0.15rem 0.7rem;
-    border: 1px solid var(--border);
+    padding: 0.2rem 0.75rem;
+    border: none;
     border-radius: 999px;
     background: var(--surface-2);
-    color: var(--accent);
-    font-size: 0.78rem;
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: 0.8rem;
     cursor: pointer;
   }
 
@@ -1151,7 +1191,7 @@
     justify-content: center;
     gap: 1rem;
     padding: 1.5rem;
-    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
     text-align: center;
   }
 
@@ -1164,21 +1204,28 @@
 
   .error {
     margin: 0;
-    color: #ff9a8a;
+    color: var(--danger);
     font-size: 0.88rem;
   }
 
   .start {
-    padding: 0.6rem 1.4rem;
-    border: 1px solid var(--border);
+    padding: 0.7rem 1.5rem;
+    border: none;
     border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
     font-size: 1rem;
     cursor: pointer;
+    box-shadow: var(--shadow);
   }
 
-  .start:hover {
-    border-color: var(--accent);
+  .start:hover:enabled {
+    background: var(--accent-ink);
+  }
+
+  .start:disabled {
+    opacity: 0.7;
+    cursor: wait;
   }
 </style>

@@ -153,6 +153,7 @@ const VIEWPOINT_SOURCE_FR: Record<ViewpointSource, string> = {
   gps: 'GPS',
   recherche: 'recherche',
   carte: 'carte',
+  sommet: 'sommet (téléporté depuis la fiche)',
 };
 
 const PEAKS_STATUS_FR: Record<PeaksStatus, string | null> = {

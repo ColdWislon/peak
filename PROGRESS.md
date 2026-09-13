@@ -414,3 +414,35 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       fois par champ au lieu de deux à quatre — 1,6 fois plus rapide. Tests : identité
       avec/sans plafond (et plafond sous l'œil), arête étroite résolue, corrections
       sous-grille à 0,1° près, grosse correction d'assiette exacte aux bords.
+- [x] Habillage clair façon PeakVisor (amendement de la décision n° 13, capture d'écran de
+      référence fournie). Thème : `app.css` passe en clair — fond blanc, accent turquoise,
+      rouge pour l'alerte, variables partagées du chrome (`--round`, `--chrome-top`…) et
+      classe globale `.btn-round`. Coque (`App.svelte`) : plus d'en-tête dans le flux, la vue
+      occupe tout l'écran et le chrome flotte dessus — colonne de boutons ronds à gauche
+      (≡ menu, loupe, « 3D » = carte), bouton rond à droite (crête = panorama depuis la
+      visée, caméra = visée depuis les autres modes). Le menu ≡ ouvre un tiroir latéral
+      (modes, réglages, débogage dont la capture caméra, crédits) ; la loupe déplie un champ
+      de recherche blanc en haut. Étiquettes (`lib/labels`, testé) : capsules blanches
+      couchées à 45° vers le haut-droit — nom en noir, altitude en blanc sur turquoise —
+      ancrées par leur extrémité basse au sommet d'un trait de rappel vertical (48 px
+      minimum) planté sur la pointe, point turquoise sur la pointe ; l'anti-chevauchement
+      travaille désormais dans le repère incliné (rectangles alignés le long de l'axe des
+      capsules : test exact), la surélévation d'un niveau dégage exactement une capsule
+      voisine ; les sommets visibles sans place pour leur nom gardent un point sur la crête
+      (`projectPeaks`). Viser : horizon calculé en trait fin sombre, crêtes intermédiaires
+      en blanc ; le ruban de boussole et le bouton « Capture pour Claude » quittent l'overlay
+      (la capture reste dans le menu ≡, où elle était déjà), « Recaler sur l'horizon » devient
+      un bouton rond sous la colonne de gauche, le conseil de recalage ne s'affiche que huit
+      secondes. Suivi figé : toucher une étiquette ouvre sa fiche ET fige la visée (capteurs
+      ignorés, image et repères immobiles) — pilule rouge « Débloquer le suivi » en haut, un
+      toucher sur l'image fige/rend aussi. Fiche de sommet (`PeakCard`, partagée par la
+      visée, le panorama et la carte) : feuille blanche au bas de l'écran avec poignée
+      (tirer vers le bas ou toucher pour fermer), nom en grand, altitude avec icône, « 12,4 km
+      vers SO », boutons ☆ favori (persisté, `lib/favorites`, testé ; l'étiquette d'un favori
+      porte une étoile), « Itinéraires » (sentiers OSM sur Waymarked Trails, centré sur le
+      sommet), « Téléporter » (panorama depuis la pointe, source de point de vue « sommet »)
+      et ⌖ voir sur la carte (carte centrée sur le sommet sans déplacer le point de vue).
+      La capture de débogage redessine les capsules couchées comme à l'écran. Hors périmètre :
+      le tracé de sentier jaune de la capture (données d'itinéraires, pas d'habillage).
+      Test navigateur adapté : ancre = l'élément `.peak`, horizon sombre (plus rouge),
+      colonnes de la capsule exclues d'après son rectangle réel, capture lancée depuis le menu.

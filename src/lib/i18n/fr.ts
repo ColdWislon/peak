@@ -19,6 +19,8 @@ export const fr = {
     noneVisible: 'Aucun sommet visible depuis ce point de vue',
   },
   search: {
+    open: 'Rechercher un lieu',
+    close: 'Fermer la recherche',
     placeholder: 'Rechercher un lieu…',
     locate: 'Me géolocaliser',
     noResults: 'Aucun résultat',
@@ -28,12 +30,24 @@ export const fr = {
   peakCard: {
     elevation: 'Altitude',
     distance: 'Distance',
+    /** « 12,4 km vers SO » : distance et secteur cardinal du sommet. */
+    towards: (distance: string, cardinal: string) => `${distance} vers ${cardinal}`,
+    favorite: 'Ajouter aux favoris',
+    unfavorite: 'Retirer des favoris',
+    routes: 'Itinéraires',
+    routesTitle: 'Sentiers de randonnée autour du sommet (Waymarked Trails, données OSM)',
+    teleport: 'Téléporter',
+    teleportTitle: 'Voir le panorama depuis ce sommet',
+    showOnMap: 'Voir sur la carte',
     close: 'Fermer',
   },
   modes: {
     panorama: 'Panorama',
     map: 'Carte',
+    map3d: '3D',
     viser: 'Viser',
+    menu: 'Menu',
+    display: 'Affichage',
   },
   viser: {
     intro:
@@ -41,6 +55,8 @@ export const fr = {
     start: 'Activer caméra et capteurs',
     cameraError: 'Caméra ou capteurs refusés — vérifiez les autorisations du navigateur.',
     calibrateHint: 'Décalé ? Glissez pour recaler (↔ cap, ↕ hauteur)',
+    unlockTracking: 'Débloquer le suivi',
+    lockHint: 'Touchez l’image pour figer la visée',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
     calibrateAuto: 'Recaler sur l’horizon',
     horizonLocked: 'Horizon calé',

@@ -1,14 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { registerDebugProvider } from '../lib/debug/report';
+  import { favorites } from '../lib/favorites/store.svelte';
   import type { LatLon } from '../lib/geo';
   import { cardinalFor, fr } from '../lib/i18n/fr';
   import {
     placeLabels,
+    projectPeaks,
     toCandidates,
-    formatDistance,
-    formatElevation,
     type LabelCandidate,
+    type PeakDot,
     type PlacedLabel,
   } from '../lib/labels';
   import { PanoramaEngine, type PanoramaContext } from '../lib/panorama/engine';
@@ -20,6 +21,7 @@
     VisibilityRequest,
     VisibilityResponse,
   } from '../lib/visibility/protocol';
+  import PeakCard from './PeakCard.svelte';
   import PeakLabels from './PeakLabels.svelte';
 
   /** Rayon de recherche des sommets (m) — au-delà, la brume les mange. */
@@ -27,7 +29,17 @@
   /** Nombre maximal de sommets envoyés au calcul de visibilité. */
   const PEAKS_LIMIT = 300;
 
-  let { viewpoint }: { viewpoint: LatLon } = $props();
+  let {
+    viewpoint,
+    onteleport,
+    onmap,
+  }: {
+    viewpoint: LatLon;
+    /** « Téléporter » depuis la fiche : le panorama depuis ce sommet. */
+    onteleport: (target: LatLon) => void;
+    /** « Voir sur la carte » depuis la fiche. */
+    onmap: (target: LatLon) => void;
+  } = $props();
 
   let canvas: HTMLCanvasElement;
   let engine: PanoramaEngine | undefined;
@@ -38,6 +50,7 @@
   let failed = $state(false);
   let heading = $state(0);
   let labels = $state<PlacedLabel[]>([]);
+  let dots = $state<PeakDot[]>([]);
   let selected = $state<PlacedLabel | null>(null);
   /** État de la chaîne sommets : l'app dit toujours pourquoi il n'y a pas d'étiquettes. */
   let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
@@ -54,13 +67,15 @@
     requestAnimationFrame(() => {
       relayoutQueued = false;
       if (!engine) return;
-      labels = placeLabels(candidates, {
+      const view = {
         headingDeg: engine.view.heading,
         pitchDeg: engine.view.pitch,
         fovDeg: engine.view.fov,
         width: canvas.clientWidth,
         height: canvas.clientHeight,
-      });
+      };
+      labels = placeLabels(candidates, view);
+      dots = projectPeaks(candidates, view);
     });
   }
 
@@ -108,6 +123,7 @@
     failed = false;
     progress = 0;
     labels = [];
+    dots = [];
     selected = null;
     candidates = [];
     sights = [];
@@ -150,6 +166,7 @@
       echec: failed,
       statutSommets: peaksStatus,
       etiquettes: labels.length,
+      selection: selected?.name ?? null,
       vue: engine ? { ...engine.view } : null,
       pointDeVue: { lat: viewpoint.lat, lon: viewpoint.lon },
     }));
@@ -184,14 +201,20 @@
 <div class="panorama">
   <canvas bind:this={canvas}></canvas>
 
-  <PeakLabels {labels} onselect={(label) => (selected = label)} />
+  <PeakLabels
+    {labels}
+    {dots}
+    selectedId={selected?.id ?? null}
+    favoriteIds={favorites.ids}
+    onselect={(label) => (selected = label)}
+  />
 
-  <div class="hud" aria-live="off">
+  <div class="hud pill" aria-live="off">
     {Math.round(heading)}° · {cardinalFor(heading)}
   </div>
 
   {#if !loading && !failed && peaksStatus !== 'ok' && peaksStatus !== 'idle'}
-    <div class="peaks-status" role="status">
+    <div class="peaks-status pill" role="status">
       {#if peaksStatus === 'searching'}
         {fr.peaks.searching}
       {:else if peaksStatus === 'error'}
@@ -207,18 +230,7 @@
   {/if}
 
   {#if selected}
-    <aside class="card">
-      <button class="close" onclick={() => (selected = null)} aria-label={fr.peakCard.close}>
-        ×
-      </button>
-      <h2>{selected.name}</h2>
-      <p>
-        {fr.peakCard.elevation} :
-        <strong>{formatElevation(selected.elevation, settings.units)}</strong><br />
-        {fr.peakCard.distance} :
-        <strong>{formatDistance(selected.distanceM, settings.units)}</strong>
-      </p>
-    </aside>
+    <PeakCard peak={selected} onclose={() => (selected = null)} {onteleport} {onmap} />
   {/if}
 
   {#if loading}
@@ -254,94 +266,36 @@
     cursor: grabbing;
   }
 
+  /* Cap chiffré : entre les boutons ronds de la rangée du haut. */
   .hud {
     position: absolute;
-    top: calc(0.75rem + var(--safe-top));
+    top: var(--chrome-top);
     left: 50%;
+    height: var(--round);
     transform: translateX(-50%);
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
-    border: 1px solid var(--border);
     font-variant-numeric: tabular-nums;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     pointer-events: none;
   }
 
   .peaks-status {
     position: absolute;
-    top: calc(3.1rem + var(--safe-top));
+    top: calc(var(--chrome-top) + var(--round) + var(--chrome-gap));
     left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.3rem 0.9rem;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
     color: var(--muted);
-    font-size: 0.8rem;
-    white-space: nowrap;
+    font-size: 0.82rem;
   }
 
   .peaks-status button {
-    padding: 0.15rem 0.7rem;
-    border: 1px solid var(--border);
+    padding: 0.2rem 0.75rem;
+    border: none;
     border-radius: 999px;
     background: var(--surface-2);
-    color: var(--accent);
-    font-size: 0.78rem;
+    color: var(--accent-ink);
+    font: inherit;
+    font-size: 0.8rem;
     cursor: pointer;
-  }
-
-  .peaks-status button:hover {
-    border-color: var(--accent);
-  }
-
-  .card {
-    position: absolute;
-    left: 50%;
-    bottom: calc(2.4rem + var(--safe-bottom));
-    transform: translateX(-50%);
-    min-width: 14rem;
-    max-width: min(22rem, 90vw);
-    padding: 0.8rem 1rem;
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
-    box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
-  }
-
-  .card h2 {
-    margin: 0 1.2rem 0.35rem 0;
-    font-size: 1.05rem;
-  }
-
-  .card p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.85rem;
-    line-height: 1.5;
-  }
-
-  .card strong {
-    color: var(--text);
-  }
-
-  .close {
-    position: absolute;
-    top: 0.35rem;
-    right: 0.5rem;
-    border: none;
-    background: none;
-    color: var(--muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-  }
-
-  .close:hover {
-    color: var(--text);
   }
 
   .veil {
@@ -352,7 +306,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    background: color-mix(in srgb, var(--bg) 90%, transparent);
     text-align: center;
     padding: 1rem;
   }
@@ -363,16 +317,18 @@
   }
 
   .retry {
-    padding: 0.5rem 1.2rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--border);
-    background: var(--surface-2);
-    color: var(--text);
+    padding: 0.6rem 1.4rem;
+    border: none;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
     font-size: 1rem;
     cursor: pointer;
+    box-shadow: var(--shadow);
   }
 
   .retry:hover {
-    border-color: var(--accent);
+    background: var(--accent-ink);
   }
 </style>

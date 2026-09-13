@@ -4,14 +4,27 @@
   import { fr } from '../lib/i18n/fr';
   import type { ViewpointSource } from '../lib/viewpoint/url';
 
-  let { onpick }: { onpick: (viewpoint: LatLon, source: ViewpointSource) => void } = $props();
+  let {
+    open,
+    onclose,
+    onpick,
+  }: {
+    open: boolean;
+    onclose: () => void;
+    onpick: (viewpoint: LatLon, source: ViewpointSource) => void;
+  } = $props();
 
+  let input = $state<HTMLInputElement | undefined>();
   let query = $state('');
   let results = $state<PlaceResult[]>([]);
   let message = $state<string | null>(null);
   let busy = $state(false);
-  let open = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  // Le champ apparaît à la demande (bouton loupe) : il prend le clavier aussitôt.
+  $effect(() => {
+    if (open) input?.focus();
+  });
 
   async function search(): Promise<void> {
     const q = query.trim();
@@ -21,11 +34,9 @@
     try {
       results = await searchPlaces(q);
       message = results.length ? null : fr.search.noResults;
-      open = true;
     } catch {
       results = [];
       message = fr.search.error;
-      open = true;
     } finally {
       busy = false;
     }
@@ -34,8 +45,8 @@
   function onInput(): void {
     clearTimeout(timer);
     if (query.trim().length < 3) {
-      open = false;
       results = [];
+      message = null;
       return;
     }
     // Politique Nominatim : requêtes espacées — debounce > 1 s.
@@ -43,7 +54,6 @@
   }
 
   function pick(place: PlaceResult): void {
-    open = false;
     results = [];
     query = place.name;
     onpick({ lat: place.lat, lon: place.lon }, 'recherche');
@@ -52,109 +62,147 @@
   function locate(): void {
     if (!navigator.geolocation) {
       message = fr.search.geolocError;
-      open = true;
       return;
     }
     busy = true;
     navigator.geolocation.getCurrentPosition(
       (position) => {
         busy = false;
-        open = false;
         onpick({ lat: position.coords.latitude, lon: position.coords.longitude }, 'gps');
       },
       () => {
         busy = false;
         message = fr.search.geolocError;
-        open = true;
       },
       { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
     );
   }
+
+  function close(): void {
+    clearTimeout(timer);
+    onclose();
+  }
 </script>
 
-<div class="search">
-  <input
-    type="search"
-    placeholder={fr.search.placeholder}
-    bind:value={query}
-    oninput={onInput}
-    onkeydown={(e) => {
-      if (e.key === 'Enter') {
-        clearTimeout(timer);
-        void search();
-      }
-    }}
-    aria-label={fr.search.placeholder}
-  />
-  <button class="locate" onclick={locate} title={fr.search.locate} aria-label={fr.search.locate}>
-    ◎
-  </button>
-  {#if busy}<span class="busy">…</span>{/if}
+{#if open}
+  <div class="search" role="search">
+    <div class="field">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m15.5 15.5 5 5" />
+      </svg>
+      <input
+        bind:this={input}
+        type="search"
+        placeholder={fr.search.placeholder}
+        bind:value={query}
+        oninput={onInput}
+        onkeydown={(e) => {
+          if (e.key === 'Enter') {
+            clearTimeout(timer);
+            void search();
+          } else if (e.key === 'Escape') {
+            close();
+          }
+        }}
+        aria-label={fr.search.placeholder}
+      />
+      {#if busy}<span class="busy" aria-hidden="true">…</span>{/if}
+      <button class="tool" onclick={locate} title={fr.search.locate} aria-label={fr.search.locate}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="6.5" />
+          <circle cx="12" cy="12" r="1.6" />
+          <path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5" />
+        </svg>
+      </button>
+      <button class="tool" onclick={close} aria-label={fr.search.close} title={fr.search.close}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+      </button>
+    </div>
 
-  {#if open && (results.length || message)}
-    <ul class="results">
-      {#each results as place (place.lat + '/' + place.lon)}
-        <li>
-          <button onclick={() => pick(place)}>
-            <span class="name">{place.name}</span>
-            {#if place.detail}<span class="detail">{place.detail}</span>{/if}
-          </button>
-        </li>
-      {/each}
-      {#if message}<li class="message">{message}</li>{/if}
-    </ul>
-  {/if}
-</div>
+    {#if results.length || message}
+      <ul class="results">
+        {#each results as place (place.lat + '/' + place.lon)}
+          <li>
+            <button onclick={() => pick(place)}>
+              <span class="name">{place.name}</span>
+              {#if place.detail}<span class="detail">{place.detail}</span>{/if}
+            </button>
+          </li>
+        {/each}
+        {#if message}<li class="message">{message}</li>{/if}
+      </ul>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .search {
-    position: relative;
+    position: absolute;
+    top: var(--chrome-top);
+    left: var(--chrome-left);
+    right: var(--chrome-right);
+    z-index: 6;
+    max-width: 34rem;
+    margin: 0 auto;
+  }
+
+  .field {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    pointer-events: auto;
+    height: var(--round);
+    padding: 0 0.5rem 0 0.9rem;
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .field > svg,
+  .tool svg {
+    width: 1.4rem;
+    height: 1.4rem;
+    flex-shrink: 0;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   input {
-    width: min(19rem, 56vw);
-    padding: 0.45rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: none;
     color: var(--text);
-    font-size: 0.9rem;
+    font: inherit;
+    font-size: 1rem;
   }
 
   input:focus {
     outline: none;
-    border-color: var(--accent);
   }
 
-  /* Écrans étroits : la recherche occupe sa propre rangée de l'en-tête. */
-  @media (max-width: 640px) {
-    input {
-      flex: 1;
-      width: auto;
-      min-width: 0;
-    }
-
-    .results {
-      width: 100%;
-    }
+  input::-webkit-search-cancel-button {
+    display: none;
   }
 
-  .locate {
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--bg) 78%, transparent);
-    color: var(--accent);
-    font-size: 1rem;
+  .tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
     cursor: pointer;
   }
 
-  .locate:hover {
-    border-color: var(--accent);
+  .tool:hover {
+    background: var(--surface-2);
   }
 
   .busy {
@@ -162,18 +210,14 @@
   }
 
   .results {
-    position: absolute;
-    top: calc(100% + 0.35rem);
-    left: 0;
-    width: min(24rem, 80vw);
-    margin: 0;
-    padding: 0.25rem;
+    margin: 0.4rem 0 0;
+    padding: 0.3rem;
     list-style: none;
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
+    border-radius: 1rem;
     background: var(--surface);
-    box-shadow: 0 8px 28px rgb(0 0 0 / 40%);
-    z-index: 5;
+    box-shadow: var(--shadow);
+    max-height: min(50vh, 22rem);
+    overflow-y: auto;
   }
 
   .results li button {
@@ -182,11 +226,12 @@
     align-items: flex-start;
     gap: 0.1rem;
     width: 100%;
-    padding: 0.45rem 0.6rem;
+    padding: 0.55rem 0.8rem;
     border: none;
-    border-radius: 0.4rem;
+    border-radius: 0.7rem;
     background: none;
     color: var(--text);
+    font: inherit;
     text-align: left;
     cursor: pointer;
   }
@@ -197,17 +242,17 @@
 
   .results .name {
     font-weight: 600;
-    font-size: 0.88rem;
+    font-size: 0.95rem;
   }
 
   .results .detail {
     color: var(--muted);
-    font-size: 0.75rem;
+    font-size: 0.8rem;
   }
 
   .message {
-    padding: 0.45rem 0.6rem;
+    padding: 0.55rem 0.8rem;
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
   }
 </style>

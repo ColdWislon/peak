@@ -16,7 +16,7 @@ export type ViewMode = 'panorama' | 'carte' | 'viser';
 export const DEFAULT_MODE: ViewMode = 'viser';
 
 /** D'où vient le point de vue : décisif pour juger un horizon qui ne colle pas. */
-export type ViewpointSource = 'defaut' | 'url' | 'gps' | 'recherche' | 'carte';
+export type ViewpointSource = 'defaut' | 'url' | 'gps' | 'recherche' | 'carte' | 'sommet';
 
 export function parseViewpoint(search: string): LatLon | null {
   const params = new URLSearchParams(search);
