@@ -112,7 +112,13 @@
   {:else if mode === 'carte'}
     <MapView center={mapCenter ?? viewpoint} onteleport={teleportToPanorama} />
   {:else}
-    <ViserView {viewpoint} {viewpointSource} onteleport={teleportToPeak} onmap={showOnMap} />
+    <ViserView
+      {viewpoint}
+      {viewpointSource}
+      onteleport={teleportToPeak}
+      onmap={showOnMap}
+      onposition={(next) => teleport(next, 'gps')}
+    />
   {/if}
 
   <!-- Chrome flottant façon PeakVisor : boutons ronds blancs par-dessus la vue. -->

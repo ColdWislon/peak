@@ -35,6 +35,7 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { AimFilter } from '../lib/viser/aimFilter';
+  import { shouldMoveViewpoint, type PositionFix } from '../lib/viser/follow';
   import {
     detectImageSkyline,
     isMatchReliable,
@@ -82,6 +83,7 @@
     viewpointSource,
     onteleport,
     onmap,
+    onposition,
   }: {
     viewpoint: LatLon;
     viewpointSource: ViewpointSource;
@@ -89,6 +91,8 @@
     onteleport: (target: LatLon) => void;
     /** « Voir sur la carte » depuis la fiche. */
     onmap: (target: LatLon) => void;
+    /** Suivi GPS : le point de vue rejoint la position réelle. */
+    onposition: (target: LatLon) => void;
   } = $props();
 
   let container: HTMLDivElement;
@@ -110,6 +114,21 @@
   /** Conseil de recalage : affiché quelques secondes après le démarrage. */
   let hintVisible = $state(false);
   let hintTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Suivi continu de la position : la caméra filme d'où l'on est, le point de
+   * vue suit donc le GPS tant que la visée tourne. Actif d'emblée sauf quand
+   * l'utilisateur a choisi un autre lieu (lien, recherche, carte, sommet) ;
+   * un lieu choisi ensuite l'arrête, le bouton ⌖ le rend.
+   */
+  // svelte-ignore state_referenced_locally
+  let following = $state(viewpointSource === 'gps' || viewpointSource === 'defaut');
+  let positionMessage = $state<string | null>(null);
+  let positionTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Horodatage du dernier déplacement suivi (cadence) et dernier relevé reçu. */
+  let lastMoveMs: number | null = null;
+  let lastFix: Record<string, unknown> | null = null;
+  /** Le prochain rechargement vient du suivi : garder les repères à l'écran. */
+  let silentReload = false;
   let peaksStatus = $state<'idle' | 'searching' | 'error' | 'empty' | 'noneVisible' | 'ok'>('idle');
 
   let stream: MediaStream | undefined;
@@ -261,11 +280,18 @@
     relayout();
   }
 
-  async function loadData(): Promise<void> {
-    peaksStatus = 'searching';
-    labels = [];
-    candidates = [];
-    sights = [];
+  /**
+   * Charge relief et sommets du point de vue courant. En mode `silent` (suivi
+   * GPS), les repères en place restent affichés jusqu'aux nouveaux résultats :
+   * un pas de 30 m ne doit pas faire clignoter les étiquettes.
+   */
+  async function loadData(silent = false): Promise<void> {
+    if (!silent) {
+      peaksStatus = 'searching';
+      labels = [];
+      candidates = [];
+      sights = [];
+    }
     worker?.terminate();
     worker = new Worker(new URL('../workers/visibility.ts', import.meta.url), {
       type: 'module',
@@ -408,6 +434,38 @@
   function onTap(): void {
     if (selected) unlock();
     else if (!sensorless) locked = !locked;
+  }
+
+  function showPositionMessage(message: string): void {
+    positionMessage = message;
+    clearTimeout(positionTimer);
+    positionTimer = setTimeout(() => (positionMessage = null), 4000);
+  }
+
+  /** Relevé GPS : ne déplace le point de vue que pour un vrai déplacement. */
+  function onFix(position: GeolocationPosition): void {
+    const fix: PositionFix = {
+      lat: position.coords.latitude,
+      lon: position.coords.longitude,
+      accuracyM: position.coords.accuracy,
+      timeMs: position.timestamp,
+    };
+    const move = shouldMoveViewpoint({ lat: viewpoint.lat, lon: viewpoint.lon }, fix, lastMoveMs);
+    lastFix = { lat: fix.lat, lon: fix.lon, precisionM: Math.round(fix.accuracyM), suivi: move };
+    if (!move) return;
+    lastMoveMs = fix.timeMs;
+    silentReload = true;
+    logDebug('viser:position', lastFix);
+    onposition({ lat: fix.lat, lon: fix.lon });
+  }
+
+  function onFixError(error: GeolocationPositionError): void {
+    logDebug('viser:position', { erreur: error.message, code: error.code });
+    // Refus : inutile d'insister. Délai ou signal perdu : on continue d'écouter.
+    if (error.code === error.PERMISSION_DENIED) {
+      following = false;
+      showPositionMessage(fr.viser.positionError);
+    }
   }
 
   /** Recalage automatique : aligne l'horizon détecté sur le profil du relief. */
@@ -870,6 +928,8 @@
       capteursRecus: gotSensor,
       suiviFige: locked,
       selection: selected?.name ?? null,
+      suiviPosition: following,
+      dernierReleve: lastFix,
       derniereOrientation: lastRawOrientation,
       visee: { cap: Math.round(aim.heading), assiette: Number(aim.pitch.toFixed(1)) },
       recalages: {
@@ -910,6 +970,7 @@
       unregister();
       clearTimeout(calibTimer);
       clearTimeout(hintTimer);
+      clearTimeout(positionTimer);
       container.removeEventListener('wheel', onWheel);
       stream?.getTracks().forEach((track) => track.stop());
       window.removeEventListener('deviceorientationabsolute', onOrientation as EventListener);
@@ -925,11 +986,36 @@
     return registerSnapshotSource(() => buildSnapshot());
   });
 
-  // Téléportation en cours de visée : recharge les données du nouveau point.
+  // Téléportation ou pas suivi en cours de visée : recharge les données du
+  // nouveau point (sans effacer les repères quand c'est le suivi qui bouge).
   $effect(() => {
     void viewpoint.lat;
     void viewpoint.lon;
-    if (phase === 'running') void loadData();
+    const silent = silentReload;
+    silentReload = false;
+    if (phase === 'running') void loadData(silent);
+  });
+
+  // Un lieu choisi (lien, recherche, carte, sommet) prime sur le GPS : le
+  // suivi s'arrête, sans quoi il ramènerait aussitôt le point de vue ici.
+  $effect(() => {
+    if (viewpointSource !== 'gps' && viewpointSource !== 'defaut') following = false;
+  });
+
+  // Suivi GPS : une surveillance tant que la visée tourne et que le suivi est actif.
+  $effect(() => {
+    if (phase !== 'running' || !following) return;
+    if (!navigator.geolocation) {
+      following = false;
+      showPositionMessage(fr.viser.positionError);
+      return;
+    }
+    const id = navigator.geolocation.watchPosition(onFix, onFixError, {
+      enableHighAccuracy: true,
+      maximumAge: 5_000,
+      timeout: 30_000,
+    });
+    return () => navigator.geolocation.clearWatch(id);
   });
 
   // Changement de préférence de nom : recompose sans recharger.
@@ -1003,6 +1089,24 @@
     {/if}
     {#if calibMessage}
       <p class="calib-message pill" role="status">{calibMessage}</p>
+    {/if}
+
+    <button
+      class="btn-round follow"
+      class:active={following}
+      aria-pressed={following}
+      aria-label={following ? fr.viser.followPositionOn : fr.viser.followPosition}
+      title={following ? fr.viser.followPositionOn : fr.viser.followPosition}
+      onclick={() => (following = !following)}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="6.5" />
+        <circle cx="12" cy="12" r="1.6" />
+        <path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5" />
+      </svg>
+    </button>
+    {#if positionMessage}
+      <p class="position-message pill" role="status">{positionMessage}</p>
     {/if}
 
     {#if hintVisible && !selected}
@@ -1132,6 +1236,23 @@
   .calibrate .sparkle {
     fill: currentColor;
     stroke-width: 1;
+  }
+
+  .follow {
+    position: absolute;
+    top: calc(var(--chrome-top) + 4 * (var(--round) + var(--chrome-gap)));
+    left: var(--chrome-left);
+    z-index: 5;
+  }
+
+  .position-message {
+    position: absolute;
+    bottom: calc(7.2rem + var(--safe-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    margin: 0;
+    font-size: 0.85rem;
+    pointer-events: none;
   }
 
   .calib-message {
