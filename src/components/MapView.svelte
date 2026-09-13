@@ -2,6 +2,7 @@
   import { Map as LibreMap, Marker, NavigationControl } from 'maplibre-gl';
   import 'maplibre-gl/dist/maplibre-gl.css';
   import { onMount } from 'svelte';
+  import { logDebug, registerDebugProvider } from '../lib/debug/report';
   import type { LatLon } from '../lib/geo';
   import { fr } from '../lib/i18n/fr';
   import { formatElevation } from '../lib/labels';
@@ -18,6 +19,19 @@
   const MIN_MARKER_ZOOM = 8;
   const MAX_MARKERS = 80;
   const MAX_PEAKS_RADIUS_M = 75_000;
+  /**
+   * Fond de repli si le style OpenFreeMap n'arrive pas (panne, réseau
+   * filtré) : un aplat, sur lequel relief 3D, ombrage et marqueurs se posent
+   * quand même — une carte sans rues vaut mieux qu'un écran vide.
+   */
+  const FALLBACK_STYLE = {
+    version: 8 as const,
+    name: 'relief-seul',
+    sources: {},
+    layers: [{ id: 'fond', type: 'background' as const, paint: { 'background-color': '#e6ece2' } }],
+  };
+  /** Délai sans style chargé avant de passer au fond de repli. */
+  const STYLE_TIMEOUT_MS = 15_000;
 
   let {
     center,
@@ -33,6 +47,12 @@
   let markers: Marker[] = [];
   let selected = $state<Peak | null>(null);
   let refreshToken = 0;
+  /** Diagnostic (rapport de débogage + message à l'écran). */
+  let styleLoaded = $state(false);
+  let fallbackReason = $state<string | null>(null);
+  let webglError = $state<string | null>(null);
+  let mapErrors: string[] = [];
+  let tilesLoaded = 0;
 
   function clearMarkers(): void {
     for (const marker of markers) marker.remove();
@@ -87,22 +107,12 @@
     for (const peak of peaks) markers.push(makeMarker(peak).addTo(map));
   }
 
-  onMount(() => {
-    map = new LibreMap({
-      container,
-      style: BASEMAP_STYLE,
-      center: [center.lon, center.lat],
-      zoom: 11,
-      pitch: 60,
-      maxPitch: 75,
-      attributionControl: { compact: true, customAttribution: fr.attributions.terrain },
-    });
-    map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
-
-    map.on('load', () => {
-      if (!map) return;
-      // Deux sources raster-dem distinctes : MapLibre gère mal le partage
-      // d'une même source entre le terrain 3D et l'ombrage.
+  /** Relief 3D + ombrage sur le style courant (OpenFreeMap ou repli). */
+  function addTerrain(): void {
+    if (!map) return;
+    // Deux sources raster-dem distinctes : MapLibre gère mal le partage
+    // d'une même source entre le terrain 3D et l'ombrage.
+    if (!map.getSource('relief-3d')) {
       map.addSource('relief-3d', {
         type: 'raster-dem',
         tiles: [TERRARIUM_TILE_TEMPLATE],
@@ -110,6 +120,8 @@
         tileSize: 256,
         maxzoom: 12,
       });
+    }
+    if (!map.getSource('relief-ombrage')) {
       map.addSource('relief-ombrage', {
         type: 'raster-dem',
         tiles: [TERRARIUM_TILE_TEMPLATE],
@@ -117,7 +129,9 @@
         tileSize: 256,
         maxzoom: 12,
       });
-      map.setTerrain({ source: 'relief-3d', exaggeration: 1.1 });
+    }
+    map.setTerrain({ source: 'relief-3d', exaggeration: 1.1 });
+    if (!map.getLayer('ombrage')) {
       const firstSymbol = map.getStyle().layers?.find((l) => l.type === 'symbol')?.id;
       map.addLayer(
         {
@@ -128,13 +142,82 @@
         },
         firstSymbol,
       );
+    }
+  }
+
+  function useFallbackStyle(reason: string): void {
+    if (!map || fallbackReason) return;
+    fallbackReason = reason;
+    logDebug('carte:repli', { raison: reason, erreurs: mapErrors.slice(-3) });
+    map.setStyle(FALLBACK_STYLE);
+  }
+
+  onMount(() => {
+    const unregister = registerDebugProvider('carte', () => ({
+      styleCharge: styleLoaded,
+      repli: fallbackReason,
+      webgl: webglError ?? 'ok',
+      tuilesChargees: tilesLoaded,
+      erreurs: mapErrors.slice(-5),
+      zoom: map ? Math.round(map.getZoom() * 10) / 10 : null,
+      centre: map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : null,
+      marqueurs: markers.length,
+      taille: [container.clientWidth, container.clientHeight],
+    }));
+
+    try {
+      map = new LibreMap({
+        container,
+        style: BASEMAP_STYLE,
+        center: [center.lon, center.lat],
+        zoom: 11,
+        pitch: 60,
+        maxPitch: 75,
+        attributionControl: { compact: true, customAttribution: fr.attributions.terrain },
+      });
+    } catch (error) {
+      // WebGL refusé (contexte perdu, navigateur restreint) : MapLibre lève
+      // dès la construction. On le dit plutôt que de laisser un écran vide.
+      webglError = String(error);
+      logDebug('carte:erreur', { etape: 'creation', detail: webglError });
+      return unregister;
+    }
+    map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
+    logDebug('carte:creation', { taille: [container.clientWidth, container.clientHeight] });
+
+    const styleTimer = setTimeout(() => {
+      if (!styleLoaded) useFallbackStyle('délai');
+    }, STYLE_TIMEOUT_MS);
+
+    map.on('style.load', () => {
+      if (!map) return;
+      styleLoaded = true;
+      clearTimeout(styleTimer);
+      logDebug('carte:style', { source: fallbackReason ? 'repli' : 'openfreemap' });
+      addTerrain();
       void refreshPeaks();
     });
     map.on('moveend', () => void refreshPeaks());
-    // Fond de carte inaccessible : le relief et les marqueurs suffisent.
-    map.on('error', () => {});
+    map.on('data', (event) => {
+      if ('tile' in event && event.dataType === 'source' && event.tile) tilesLoaded++;
+    });
+    // Toute erreur est journalisée ; avant le premier style chargé, elle
+    // signale un fond de carte inaccessible → repli sur le relief seul.
+    map.on('error', (event) => {
+      const detail = String(event.error?.message ?? event.error ?? 'inconnue');
+      mapErrors.push(detail);
+      if (mapErrors.length > 20) mapErrors.splice(0, mapErrors.length - 20);
+      logDebug('carte:erreur', { detail });
+      if (!styleLoaded) useFallbackStyle(detail);
+    });
+    map.on('webglcontextlost', () => {
+      webglError = 'contexte WebGL perdu';
+      logDebug('carte:erreur', { etape: 'webgl', detail: webglError });
+    });
 
     return () => {
+      clearTimeout(styleTimer);
+      unregister();
       clearMarkers();
       map?.remove();
       map = undefined;
@@ -172,6 +255,12 @@
 <div class="map">
   <div class="canvas" bind:this={container}></div>
 
+  {#if webglError}
+    <p class="notice">{fr.map.webglUnavailable}</p>
+  {:else if fallbackReason}
+    <p class="notice">{fr.map.basemapUnavailable}</p>
+  {/if}
+
   <button class="fab pill" onclick={panoramaHere}>
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M2 18.5 6.5 9.5l3.2 4.4 3.6-7.4 3 5.2 1.8-2.4L22 18.5" />
@@ -205,6 +294,24 @@
   .canvas {
     position: absolute;
     inset: 0;
+  }
+
+  .notice {
+    position: absolute;
+    top: var(--chrome-top);
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100% - 7rem);
+    margin: 0;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 88%);
+    color: var(--muted);
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
   }
 
   :global(.peak-marker) {

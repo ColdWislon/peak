@@ -525,3 +525,18 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       Testé (base muette → sommets en 5 s) et vérifié dans Chromium avec un onglet bloquant
       (7 ms). Si le symptôme persiste, lire le rapport de débogage (menu ≡) — le fond de carte
       OpenFreeMap et le relief ne sont pas touchés par ce changement.
+- [x] Retour « la carte reste blanche, sans fond ni relief » (cas 1). Le composant carte
+      avalait toutes ses erreurs (`map.on('error', () => {})`), ne journalisait rien dans le
+      rapport de débogage, et dépendait entièrement du style OpenFreeMap : s'il n'arrivait pas
+      (panne, réseau filtré, délai), `load` ne se déclenchait jamais → ni relief, ni ombrage,
+      ni marqueurs, écran uni. Désormais : (1) repli automatique sur un style minimal (aplat)
+      dès la première erreur avant chargement du style, ou après 15 s sans style — relief 3D,
+      ombrage et marqueurs se posent dessus (`style.load` au lieu de `load`, ajout idempotent
+      des sources) et une pilule « Fond de carte indisponible : relief seul » le dit ; (2) la
+      construction de MapLibre est protégée : WebGL refusé → message « Carte 3D indisponible »
+      au lieu d'un plantage muet ; (3) rapport de débogage : fournisseur `carte` (style chargé,
+      repli, WebGL, tuiles chargées, dernières erreurs, zoom, centre, marqueurs, taille du
+      conteneur) et événements `carte:creation`, `carte:style`, `carte:erreur`, `carte:repli`.
+      Vérifié dans Chromium sur le build de prod, style OpenFreeMap refusé / HTTP 500 / muet
+      15 s / sain : marqueurs dans les quatre cas, avis seulement en repli. Si l'écran reste
+      uni sur l'appareil, le rapport de débogage (menu ≡) dira maintenant pourquoi.
