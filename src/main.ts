@@ -1,11 +1,16 @@
 import { mount } from 'svelte';
 import './app.css';
 import App from './App.svelte';
+import { watchInstallPrompt } from './lib/pwa/prompt.svelte';
 
 const target = document.getElementById('app');
 if (!target) {
   throw new Error('Élément #app introuvable dans index.html');
 }
+
+// Avant le montage : Chrome émet `beforeinstallprompt` très tôt, et une seule
+// fois — l'écouter trop tard, c'est perdre le bouton « Installer ».
+watchInstallPrompt();
 
 const app = mount(App, { target });
 

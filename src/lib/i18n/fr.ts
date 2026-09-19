@@ -92,6 +92,12 @@ export const fr = {
     install: 'Installer l’app',
     installIosHint:
       'Dans Safari : bouton Partager, puis « Sur l’écran d’accueil ». Cimes se lance alors en plein écran, hors-ligne compris.',
+    installAndroidHint:
+      'Dans Chrome : menu ⋮, puis « Installer l’application ». Cimes se lance alors en plein écran, hors-ligne compris.',
+    installButton: 'Installer Cimes',
+    installDone: 'Cimes est installée — elle vous attend sur l’écran d’accueil.',
+    installDismissed: 'Installation annulée — le bouton revient plus tard si vous changez d’avis.',
+    installUnavailable: 'Installation indisponible ici — passez par le menu du navigateur.',
     debug: 'Débogage',
     copyReport: 'Copier le rapport de débogage',
     reportCopied: 'Rapport copié — collez-le dans la conversation avec Claude',

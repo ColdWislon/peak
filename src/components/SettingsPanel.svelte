@@ -3,7 +3,8 @@
   import { captureDebugSnapshot, deliverSnapshot, hasSnapshotSource } from '../lib/debug/snapshot';
   import { fr } from '../lib/i18n/fr';
   import type { NamePreference } from '../lib/peaks';
-  import { isIosDevice, isStandalone } from '../lib/pwa/install';
+  import { installOffer, isAndroidDevice, isIosDevice, isStandalone } from '../lib/pwa/install';
+  import { installState, promptInstall } from '../lib/pwa/prompt.svelte';
   import type { RenderQuality, Units } from '../lib/settings';
   import { saveSettings, settings } from '../lib/settings/store.svelte';
   import type { ViewMode } from '../lib/viewpoint/url';
@@ -29,13 +30,32 @@
   // du tiroir (le mode courant ne dit pas si la caméra tourne).
   const canCapture = $derived(open && hasSnapshotSource());
 
-  // Aide à l'installation PWA : seulement sur iOS et hors app déjà installée.
-  const showInstall =
-    isIosDevice(navigator.userAgent, navigator.maxTouchPoints) &&
-    !isStandalone(
-      window.matchMedia('(display-mode: standalone)').matches,
-      (navigator as Navigator & { standalone?: boolean }).standalone,
-    );
+  // Aide à l'installation PWA. Android (et le bureau) offrent une vraie invite
+  // via `beforeinstallprompt` : bouton. iOS n'offre rien : marche à suivre.
+  const launchedStandalone = isStandalone(
+    window.matchMedia('(display-mode: standalone)').matches,
+    (navigator as Navigator & { standalone?: boolean }).standalone,
+  );
+  let installMessage = $state<string | null>(null);
+  const offer = $derived(
+    installOffer({
+      installed: launchedStandalone || installState.installed,
+      ios: isIosDevice(navigator.userAgent, navigator.maxTouchPoints),
+      android: isAndroidDevice(navigator.userAgent),
+      promptReady: installState.promptReady,
+    }),
+  );
+
+  /** Bouton « Installer » : déclenche l'invite du navigateur, puis en rend compte. */
+  async function install(): Promise<void> {
+    const outcome = await promptInstall();
+    installMessage =
+      outcome === 'accepted'
+        ? fr.settings.installDone
+        : outcome === 'dismissed'
+          ? fr.settings.installDismissed
+          : fr.settings.installUnavailable;
+  }
 
   const modes: Array<{ value: ViewMode; label: string }> = [
     { value: 'viser', label: fr.modes.viser },
@@ -193,10 +213,21 @@
       {/each}
     </fieldset>
 
-    {#if showInstall}
+    <!-- Le bloc survit à l'installation le temps d'en rendre compte : une fois
+         l'app installée, l'offre disparaît mais le message reste. -->
+    {#if offer || installMessage}
       <fieldset>
         <legend>{fr.settings.install}</legend>
-        <p class="install-hint">{fr.settings.installIosHint}</p>
+        {#if offer === 'prompt'}
+          <button class="install" onclick={() => void install()}>
+            {fr.settings.installButton}
+          </button>
+        {:else if offer}
+          <p class="install-hint">
+            {offer === 'ios' ? fr.settings.installIosHint : fr.settings.installAndroidHint}
+          </p>
+        {/if}
+        {#if installMessage}<p class="install-note" role="status">{installMessage}</p>{/if}
       </fieldset>
     {/if}
 
@@ -396,6 +427,29 @@
   .install-hint {
     margin: 0;
     font-size: 0.85rem;
+    line-height: 1.45;
+  }
+
+  /* Même gabarit que le bouton du rapport de débogage, en action principale. */
+  .install {
+    padding: 0.45rem 0.95rem;
+    border: none;
+    border-radius: 0.7rem;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+
+  .install:hover {
+    background: var(--accent-ink);
+  }
+
+  .install-note {
+    margin: 0.5rem 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
     line-height: 1.45;
   }
 

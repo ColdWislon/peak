@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isIosDevice, isStandalone } from './install';
+import { installOffer, isAndroidDevice, isIosDevice, isStandalone } from './install';
 
 const UA_IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 ' +
@@ -42,5 +42,39 @@ describe('isStandalone', () => {
   it('faux dans un onglet de navigateur classique', () => {
     expect(isStandalone(false, undefined)).toBe(false);
     expect(isStandalone(false, false)).toBe(false);
+  });
+});
+
+describe('isAndroidDevice', () => {
+  it('reconnaît Android, écarte iPhone et desktop', () => {
+    expect(isAndroidDevice(UA_ANDROID)).toBe(true);
+    expect(isAndroidDevice(UA_IPHONE)).toBe(false);
+    expect(isAndroidDevice(UA_WINDOWS)).toBe(false);
+  });
+});
+
+describe('installOffer', () => {
+  const base = { installed: false, ios: false, android: false, promptReady: false };
+
+  it('invite du navigateur captée : un vrai bouton, quel que soit l’appareil', () => {
+    expect(installOffer({ ...base, android: true, promptReady: true })).toBe('prompt');
+    expect(installOffer({ ...base, promptReady: true })).toBe('prompt');
+  });
+
+  it('Android sans invite (Firefox, ou invite pas encore émise) : le menu ⋮', () => {
+    expect(installOffer({ ...base, android: true })).toBe('android');
+  });
+
+  it('iOS : la marche à suivre Safari, jamais de bouton (pas d’invite)', () => {
+    expect(installOffer({ ...base, ios: true })).toBe('ios');
+  });
+
+  it('app déjà installée : plus rien à proposer', () => {
+    expect(installOffer({ ...base, installed: true, ios: true })).toBeNull();
+    expect(installOffer({ ...base, installed: true, android: true, promptReady: true })).toBeNull();
+  });
+
+  it('bureau sans invite : on ne dit rien plutôt qu’une marche à suivre fausse', () => {
+    expect(installOffer(base)).toBeNull();
   });
 });

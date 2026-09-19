@@ -552,3 +552,16 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       du bon côté, seuil d'affichage, arc court au franchissement du nord) ; vérifié dans
       Chromium sur le build de prod (bout en bout Viser) : un seul ruban tant que rien n'est
       recalé, les deux après « Recaler sur l'horizon » sur un biais capteurs de +6°.
+- [x] Installation sur Android : l'aide du tiroir ≡ ne parlait qu'à iOS (« Partager → sur
+      l'écran d'accueil »), Android n'avait rien alors que c'est le seul système à offrir une
+      VRAIE invite d'installation. `beforeinstallprompt` est désormais capté au démarrage
+      (main.ts — Chrome ne l'émet qu'une fois, très tôt : l'écouter au montage du tiroir, c'est
+      le perdre), son invite par défaut est retenue, et les réglages affichent un bouton
+      « Installer Cimes » qui la déclenche au moment choisi ; `appinstalled` et le verdict de
+      l'invite rendent compte sur place (le bloc survit à l'installation le temps du message).
+      Repli sans invite : marche à suivre du menu ⋮ sur Android (Firefox, ou invite pas encore
+      émise), marche à suivre Safari sur iOS, rien du tout au bureau plutôt qu'un chemin faux.
+      Décision pure et testée (`installOffer`, `isAndroidDevice`), état réactif isolé dans
+      `lib/pwa/prompt.svelte.ts`. Vérifié dans Chromium sur le build de prod avec quatre UA :
+      bouton + `prompt()` appelé + confirmation (Android avec invite), menu ⋮ (Android sans),
+      Safari (iPhone), rien (bureau). README : section « Installer sur le téléphone ».
