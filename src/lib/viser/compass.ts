@@ -1,4 +1,4 @@
-import { degToRad, normalizeBearing, radToDeg } from '../geo';
+import { degToRad, normalizeBearing, radToDeg, signedDeltaDeg } from '../geo';
 import { projectToScreen, type ViewGeometry } from '../labels';
 
 /**
@@ -54,4 +54,46 @@ export function compassTicks(view: ViewGeometry): CompassTick[] {
     });
   }
   return ticks;
+}
+
+/**
+ * Seuil d'affichage du ruban brut (°) : en deçà, le recalage ne déplacerait
+ * pas le ruban d'un pixel visible — deux rubans identiques n'apprendraient
+ * rien.
+ */
+export const RAW_BAND_MIN_OFFSET_DEG = 0.5;
+
+export interface CompassBands {
+  /** Ruban aligné sur les repères à l'écran (cap recalé). */
+  aimed: CompassTick[];
+  /** Même ruban au cap des capteurs seuls ; vide si le recalage est négligeable. */
+  raw: CompassTick[];
+  /** Cap affiché (°) : celui des étiquettes et de l'horizon. */
+  headingDeg: number;
+  /** Cap des capteurs avant recalage (°). */
+  rawHeadingDeg: number;
+  /** Recalage appliqué (°, arc court signé) : `headingDeg = rawHeadingDeg + offset`. */
+  offsetDeg: number;
+}
+
+/**
+ * Les deux rubans du mode Viser : celui du cap recalé (le seul qui soit
+ * d'accord avec les étiquettes) et celui du cap brut des capteurs, pour lire
+ * d'un coup d'œil de combien la boussole du téléphone est à côté.
+ * `view.headingDeg` est le cap DÉJÀ recalé, `headingOffsetDeg` ce qui lui a
+ * été ajouté (glissé du doigt et/ou recalage sur l'horizon).
+ */
+export function compassBands(view: ViewGeometry, headingOffsetDeg: number): CompassBands {
+  const offsetDeg = signedDeltaDeg(headingOffsetDeg);
+  const rawHeadingDeg = normalizeBearing(view.headingDeg - offsetDeg);
+  return {
+    aimed: compassTicks(view),
+    raw:
+      Math.abs(offsetDeg) < RAW_BAND_MIN_OFFSET_DEG
+        ? []
+        : compassTicks({ ...view, headingDeg: rawHeadingDeg }),
+    headingDeg: normalizeBearing(view.headingDeg),
+    rawHeadingDeg,
+    offsetDeg,
+  };
 }

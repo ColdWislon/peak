@@ -64,6 +64,7 @@ export const fr = {
     lockHint: 'Touchez l’image pour figer la visée',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
     calibrateAuto: 'Recaler sur l’horizon',
+    compassRaw: 'brut',
     horizonLocked: 'Horizon calé',
     horizonNotFound: 'Horizon introuvable — recalez à la main',
     capture: 'Capture pour Claude',

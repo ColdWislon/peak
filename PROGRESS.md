@@ -540,3 +540,15 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       Vérifié dans Chromium sur le build de prod, style OpenFreeMap refusé / HTTP 500 / muet
       15 s / sain : marqueurs dans les quatre cas, avis seulement en repli. Si l'écran reste
       uni sur l'appareil, le rapport de débogage (menu ≡) dira maintenant pourquoi.
+- [x] Boussole rendue à la vue Viser, avec ET sans recalage : deux rubans superposés sous la
+      rangée de boutons ronds — celui du cap recalé (graduations sombres, lettres cardinales,
+      repère central rouge), et juste dessous, dès que le recalage dépasse 0,5°, celui du cap
+      BRUT des capteurs (graduations grises, lettres sous le trait). Le décalage entre les
+      deux EST l'erreur de la boussole du téléphone, lisible d'un coup d'œil ; la pilule sous
+      les rubans l'annonce en chiffres : « 90° · E · brut 96° · −6,0° ». Le second ruban est
+      masqué quand il n'y a rien à comparer, mais sa place reste réservée (le statut des
+      sommets, descendu sous le bloc, ne saute pas). `compassBands(view, recalage)` ajouté au
+      module pur `lib/viser/compass` et testé (ruban unique sans recalage, ruban brut décalé
+      du bon côté, seuil d'affichage, arc court au franchissement du nord) ; vérifié dans
+      Chromium sur le build de prod (bout en bout Viser) : un seul ruban tant que rien n'est
+      recalé, les deux après « Recaler sur l'horizon » sur un biais capteurs de +6°.

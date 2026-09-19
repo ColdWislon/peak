@@ -119,6 +119,12 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       );
     }
 
+    // Boussole : sans recalage, un seul ruban et un seul cap annoncé.
+    expect(await page.locator('.band.raw .tick').count()).toBe(0);
+    const readout = (await page.locator('.readout').textContent()) ?? '';
+    expect(readout).toContain('90° · E');
+    expect(readout).not.toContain('brut');
+
     // La capsule couchée occupe ~150 des 390 colonnes : il en reste une centaine.
     expect(gaps.usable).toBeGreaterThan(80);
     expect(gaps.median).toBeLessThanOrEqual(3.5);
@@ -156,6 +162,18 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     expect(announced).toBeLessThanOrEqual(-5);
 
     await page.waitForTimeout(600);
+    if (process.env.CIMES_E2E_DEBUG) {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(`${process.env.CIMES_E2E_DEBUG}/s2.png`, await page.screenshot());
+    }
+    // Boussole : le second ruban montre le cap brut (96°) sous le cap recalé
+    // (90°), et le chiffre du recalage est annoncé sous les deux.
+    expect(await page.locator('.band.raw .tick').count()).toBeGreaterThan(0);
+    const readoutAfter = (await page.locator('.readout').textContent()) ?? '';
+    expect(readoutAfter).toContain('90° · E');
+    expect(readoutAfter).toContain('brut 96°');
+    expect(readoutAfter).toContain('−6,0°');
+
     const after = alignmentGaps(
       decodePng(await page.screenshot()),
       exclusions(await labelAnchor()),

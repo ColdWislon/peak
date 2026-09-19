@@ -41,6 +41,7 @@
   import { serializeGeoHeightField } from '../lib/terrain/heightField';
   import { loadBlockHeightField } from '../lib/terrain/loader';
   import { AimFilter } from '../lib/viser/aimFilter';
+  import { compassBands, type CompassBands } from '../lib/viser/compass';
   import { shouldMoveViewpoint, type PositionFix } from '../lib/viser/follow';
   import {
     addFovSample,
@@ -64,6 +65,7 @@
     VisibilityResponse,
   } from '../lib/visibility/protocol';
   import type { ViewpointSource } from '../lib/viewpoint/url';
+  import CompassRibbon from './CompassRibbon.svelte';
   import PeakCard from './PeakCard.svelte';
   import PeakLabels from './PeakLabels.svelte';
 
@@ -159,6 +161,8 @@
   /** Recalages : glissé manuel et/ou alignement automatique sur l'horizon. */
   let headingOffset = 0;
   let pitchOffset = 0;
+  /** Rubans de boussole : cap recalé et, s'il y a recalage, cap brut des capteurs. */
+  let compass = $state<CompassBands | null>(null);
   let demSkyline = $state<Float32Array | null>(null);
   /** Polyligne SVG de l'horizon calculé (points « x,y … ») et sa taille de repère. */
   let horizonPoints = $state('');
@@ -245,6 +249,7 @@
         width: container.clientWidth,
         height: container.clientHeight,
       };
+      compass = compassBands(view, headingOffset);
       labels = placeLabels(candidates, view);
       dots = projectPeaks(candidates, view);
       if (demSkyline) {
@@ -1133,6 +1138,10 @@
   />
 
   {#if phase === 'running'}
+    {#if compass}
+      <CompassRibbon bands={compass} />
+    {/if}
+
     {#if locked}
       <button class="unlock" onclick={unlock}>{fr.viser.unlockTracking}</button>
     {/if}
@@ -1351,7 +1360,8 @@
 
   .peaks-status {
     position: absolute;
-    top: calc(var(--chrome-top) + var(--round) + var(--chrome-gap));
+    /* Sous les deux rubans de boussole et leur cap chiffré. */
+    top: calc(var(--chrome-top) + var(--round) + var(--chrome-gap) + 6rem);
     left: 50%;
     transform: translateX(-50%);
     color: var(--muted);

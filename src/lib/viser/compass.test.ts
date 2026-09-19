@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewGeometry } from '../labels';
-import { compassTicks, halfHorizontalFovDeg, TICK_STEP_DEG } from './compass';
+import {
+  compassBands,
+  compassTicks,
+  halfHorizontalFovDeg,
+  RAW_BAND_MIN_OFFSET_DEG,
+  TICK_STEP_DEG,
+} from './compass';
 
 /** Vue carrée commode : FOV 90° et aspect 1 → demi-champ horizontal de 45° exactement. */
 const SQUARE: ViewGeometry = { headingDeg: 0, pitchDeg: 0, fovDeg: 90, width: 800, height: 800 };
@@ -84,5 +90,42 @@ describe('compassTicks', () => {
       expect(tick.x).toBeLessThanOrEqual(375);
       expect(tick.azimuthDeg % TICK_STEP_DEG).toBe(0);
     }
+  });
+});
+
+describe('compassBands', () => {
+  it('sans recalage : un seul ruban, le cap brut est le cap affiché', () => {
+    const bands = compassBands({ ...SQUARE, headingDeg: 120 }, 0);
+    expect(bands.aimed).toEqual(compassTicks({ ...SQUARE, headingDeg: 120 }));
+    expect(bands.raw).toEqual([]);
+    expect(bands.headingDeg).toBe(120);
+    expect(bands.rawHeadingDeg).toBe(120);
+    expect(bands.offsetDeg).toBe(0);
+  });
+
+  it('recalage : le ruban brut est celui des capteurs, décalé du recalage', () => {
+    const bands = compassBands({ ...SQUARE, headingDeg: 120 }, 18);
+    expect(bands.rawHeadingDeg).toBeCloseTo(102, 9);
+    expect(bands.raw).toEqual(compassTicks({ ...SQUARE, headingDeg: 102 }));
+    // Même azimut : le ruban brut le place plus à droite (le nord brut est
+    // « en avance » de 18° sur le nord recalé).
+    const at = (ticks: ReturnType<typeof compassTicks>, az: number) =>
+      ticks.find((t) => t.azimuthDeg === az)!.x;
+    expect(at(bands.raw, 120)).toBeGreaterThan(at(bands.aimed, 120));
+  });
+
+  it('recalage négligeable : pas de second ruban (les deux seraient confondus)', () => {
+    const under = compassBands({ ...SQUARE, headingDeg: 12 }, RAW_BAND_MIN_OFFSET_DEG / 2);
+    expect(under.raw).toEqual([]);
+    const over = compassBands({ ...SQUARE, headingDeg: 12 }, RAW_BAND_MIN_OFFSET_DEG);
+    expect(over.raw.length).toBeGreaterThan(0);
+  });
+
+  it('recalage rendu par l’arc court et caps normalisés au franchissement du nord', () => {
+    const bands = compassBands({ ...SQUARE, headingDeg: 5 }, 350);
+    expect(bands.offsetDeg).toBeCloseTo(-10, 9);
+    expect(bands.rawHeadingDeg).toBeCloseTo(15, 9);
+    expect(bands.headingDeg).toBe(5);
+    expect(bands.raw.every((t) => t.azimuthDeg >= 0 && t.azimuthDeg < 360)).toBe(true);
   });
 });
