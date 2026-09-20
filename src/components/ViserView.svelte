@@ -189,6 +189,16 @@
   let aimFilter = new AimFilter();
   /** Dernier événement absolu vu : le flux relatif d'Android est alors ignoré. */
   let lastAbsoluteMs = Number.NEGATIVE_INFINITY;
+  /**
+   * D'où vient le nord : 'boussole' (`webkitCompassHeading`, iOS), 'absolu'
+   * (flux `deviceorientationabsolute`, Android), ou 'relatif' — l'appareil ne
+   * donne qu'une orientation SANS NORD, dont l'origine de cap est arbitraire à
+   * chaque lancement. Dans ce dernier cas la boussole affichée est fausse tant
+   * qu'elle n'est pas recalée : l'app le dit au lieu de faire semblant.
+   */
+  let northSource = $state<'boussole' | 'absolu' | 'relatif' | null>(null);
+  /** Le cap a été recalé (glissé ou horizon) : l'avis « pas de nord » s'efface. */
+  let headingRecalibrated = $state(false);
 
   /** Forme du cadre caméra courant (grand côté / petit côté), null sans vidéo. */
   function streamAspect(): number | null {
@@ -281,6 +291,11 @@
     // absolu vit, les événements relatifs sans boussole iOS sont écartés.
     if (event.absolute) lastAbsoluteMs = event.timeStamp;
     else if (!hasCompass && event.timeStamp - lastAbsoluteMs < 1000) return;
+    // Un flux relatif n'a de nord que par accident : le signaler (et ne jamais
+    // revenir en arrière si les deux flux se succèdent — le bon gagne).
+    if (hasCompass) northSource = 'boussole';
+    else if (event.absolute) northSource = 'absolu';
+    else if (northSource === null) northSource = 'relatif';
     lastRawOrientation = {
       alpha: event.alpha,
       beta: event.beta,
@@ -429,6 +444,7 @@
     // Session capteurs neuve : le décalage boussole appris repart de zéro.
     aimFilter = new AimFilter();
     lastAbsoluteMs = Number.NEGATIVE_INFINITY;
+    northSource = null;
     window.addEventListener('deviceorientationabsolute', onOrientation as EventListener);
     window.addEventListener('deviceorientation', onOrientation as EventListener);
     setTimeout(() => {
@@ -655,6 +671,7 @@
         // des « +380° » incompréhensibles dans le rapport (rapport terrain n° 3).
         headingOffset = signedDeltaDeg(headingOffset + match.headingOffsetDeg);
         pitchOffset += match.pitchOffsetDeg;
+        headingRecalibrated = true;
         const deg = Math.round(match.headingOffsetDeg);
         if (adoptFov && settings.cameraShortFovDeg !== null) {
           if (lastCalibration) lastCalibration.shortFovDeg = settings.cameraShortFovDeg;
@@ -956,6 +973,7 @@
       // (les capteurs de gravité dérivent aussi de plusieurs degrés).
       headingOffset = signedDeltaDeg(headingOffset - dx * degPerPx);
       pitchOffset = Math.max(-20, Math.min(20, pitchOffset + dy * degPerPx));
+      headingRecalibrated = true;
     }
     relayout();
   }
@@ -999,11 +1017,13 @@
         assiette: Number(pitchOffset.toFixed(1)),
       },
       filtreBoussole: {
+        sourceNord: northSource,
         decalage:
           aimFilter.compassOffsetDeg === null
             ? null
             : Number(aimFilter.compassOffsetDeg.toFixed(1)),
         poids: Number(aimFilter.compassWeight.toFixed(2)),
+        accord: Number(aimFilter.compassCoherence.toFixed(2)),
       },
       fovEcran: Number(currentScreenFov().toFixed(1)),
       fovPetitCote: shortFov(),
@@ -1184,7 +1204,11 @@
       <p class="position-message pill" role="status">{positionMessage}</p>
     {/if}
 
-    {#if hintVisible && !selected}
+    {#if northSource === 'relatif' && !headingRecalibrated && !selected}
+      <!-- Orientation sans nord (navigateur sans flux absolu ni boussole iOS) :
+           le dire vaut mieux qu'afficher un cap inventé avec aplomb. -->
+      <p class="hint wrap" role="status">{fr.viser.noAbsoluteHeading}</p>
+    {:else if hintVisible && !selected}
       <p class="hint">{sensorless ? fr.viser.dragHint : fr.viser.calibrateHint}</p>
     {/if}
 
@@ -1356,6 +1380,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     pointer-events: none;
+  }
+
+  /* Avis long (pas de nord) : deux lignes valent mieux qu'une ellipse. La
+     largeur est imposée — sans elle, la boîte centrée par `translateX(-50%)`
+     se contente de la moitié droite de l'écran et le texte s'empile. */
+  .hint.wrap {
+    width: calc(100% - 2rem);
+    border-radius: 0.9rem;
+    color: var(--danger);
+    white-space: normal;
+    text-align: center;
   }
 
   .peaks-status {

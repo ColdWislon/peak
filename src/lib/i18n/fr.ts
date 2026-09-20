@@ -64,6 +64,8 @@ export const fr = {
     lockHint: 'Touchez l’image pour figer la visée',
     dragHint: 'Capteurs indisponibles : glissez pour viser',
     calibrateAuto: 'Recaler sur l’horizon',
+    noAbsoluteHeading:
+      'Ce navigateur ne donne pas le nord : le cap affiché est arbitraire. Recalez sur l’horizon, ou glissez ↔.',
     compassRaw: 'brut',
     horizonLocked: 'Horizon calé',
     horizonNotFound: 'Horizon introuvable — recalez à la main',

@@ -135,27 +135,76 @@ describe('AimFilter — boussole iOS', () => {
     expect(arcAbs(30, out.headingDeg)).toBeLessThan(0.5);
   });
 
-  it('au-delà de la verticale (visée vers le ciel) : le décalage reste gelé', () => {
+  it('au-delà de la verticale (visée vers le ciel) : l’azimut retourné est redressé', () => {
     const filter = new AimFilter();
     feed(
       filter,
       repeat(10, () => ({ alphaDeg: 0, betaDeg: 60, gammaDeg: 0, compassDeg: 0 })),
     );
-    const before = filter.compassOffsetDeg;
-    // β = 120° : cos β < 0, l'azimut du haut de l'appareil est retourné —
-    // cette boussole-là (≈ 180° fausse) ne doit pas s'apprendre.
+    // β = 120° : cos β < 0, l'azimut du haut de l'appareil se retourne de 180°
+    // (la boussole cohérente avec α = 0 y vaut 180, pas 0).
     feed(
       filter,
       repeat(80, () => ({ alphaDeg: 0, betaDeg: 120, gammaDeg: 0, compassDeg: 180 })),
       160,
     );
-    expect(filter.compassOffsetDeg).toBe(before);
+    expect(arcAbs(0, filter.compassOffsetDeg ?? 999)).toBeLessThan(0.1);
     const out = feed(
       filter,
       repeat(30, () => ({ alphaDeg: 0, betaDeg: 90, gammaDeg: 0, compassDeg: 180 })),
       2000,
     );
     expect(arcAbs(0, out.headingDeg)).toBeLessThan(0.5);
+  });
+
+  it('première boussole prise en visée vers le ciel : nord juste, pas 180° faux', () => {
+    // Pose cohérente : α = 40, β = 110 (on vise 20° au-dessus de l'horizon en
+    // portrait) → le haut de l'appareil bascule derrière, son azimut vaut 140.
+    // Le cap visé est 320° ; l'ignorer donnait exactement 140° (bug de terrain).
+    const out = new AimFilter().update({
+      alphaDeg: 40,
+      betaDeg: 110,
+      gammaDeg: 0,
+      compassDeg: 140,
+      timeMs: 0,
+    });
+    expect(arcAbs(320, out.headingDeg)).toBeLessThan(0.01);
+  });
+
+  it('boussole toujours mal conditionnée : la première lecture ne se grave pas', () => {
+    const filter = new AimFilter();
+    // Séance entière téléphone dressé (β = 90) : le premier cap est aberrant
+    // (+150°), les suivants sont bons. Rien ici n'est « fiable » au sens du
+    // conditionnement — il faut quand même que la moyenne redresse le nord.
+    filter.update({ alphaDeg: 0, betaDeg: 90, gammaDeg: 0, compassDeg: 150, timeMs: 0 });
+    expect(arcAbs(150, filter.compassOffsetDeg ?? 999)).toBeLessThan(0.1);
+    const out = feed(
+      filter,
+      repeat(90, () => ({ alphaDeg: 0, betaDeg: 90, gammaDeg: 0, compassDeg: 0 })),
+      16,
+    );
+    expect(arcAbs(0, filter.compassOffsetDeg ?? 999)).toBeLessThan(2);
+    expect(arcAbs(0, out.headingDeg)).toBeLessThan(2);
+  });
+
+  it('accord des lectures exposé : boussole cohérente ≫ boussole qui divague', () => {
+    const steady = new AimFilter();
+    feed(
+      steady,
+      repeat(60, () => ({ alphaDeg: 0, betaDeg: 60, gammaDeg: 0, compassDeg: 0 })),
+    );
+    const erratic = new AimFilter();
+    repeat(60, (i) => i).forEach((i) => {
+      erratic.update({
+        alphaDeg: 0,
+        betaDeg: 60,
+        gammaDeg: 0,
+        compassDeg: i % 2 === 0 ? 70 : 290,
+        timeMs: i * 16,
+      });
+    });
+    expect(steady.compassCoherence).toBeGreaterThan(0.99);
+    expect(erratic.compassCoherence).toBeLessThan(0.5);
   });
 
   it('à plat : le décalage s’affine vers la boussole (dérive gyroscopique résorbée)', () => {

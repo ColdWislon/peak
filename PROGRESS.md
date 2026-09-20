@@ -565,3 +565,31 @@ Fichier d'état pour reprendre le travail dans une nouvelle session (contexte pe
       `lib/pwa/prompt.svelte.ts`. Vérifié dans Chromium sur le build de prod avec quatre UA :
       bouton + `prompt()` appelé + confirmation (Android avec invite), menu ⋮ (Android sans),
       Safari (iPhone), rien (bureau). README : section « Installer sur le téléphone ».
+- [x] Rapport terrain « la boussole était complètement fausse » (sans journal). Cause trouvée
+      par la géométrie, puis reproduite dans Chromium : `webkitCompassHeading` (iOS) est
+      l'azimut du HAUT de l'appareil, dont la direction monde est (−sinα·cosβ, cosα·cosβ,
+      sinβ) — son azimut vaut −α tant que cos β > 0, mais **180° − α au-delà**, car passé la
+      verticale le haut bascule derrière l'appareil et sa projection horizontale se retourne.
+      Or β > 90°, c'est simplement viser AU-DESSUS de l'horizon en portrait : la pose normale
+      en montagne. Le filtre prenait la première lecture au pied de la lettre (α = 360 − H) et
+      gravait donc un nord à l'envers ; pire, il ne le corrigeait plus jamais ensuite, le poids
+      cos β étant nul ou négatif dans toute cette zone. Cap affiché : 270° pour une visée plein
+      est (scénario bout en bout, qui échoue exactement ainsi sur l'ancien code).
+      Correction dans `lib/viser/aimFilter` : (a) le retournement est redressé au lieu d'être
+      ignoré — le décalage cherché vaut α + H, plus 180° quand cos β < 0 ; (b) le nord n'est
+      plus retenu d'un seul événement mais d'une MOYENNE CIRCULAIRE pondérée à mémoire
+      glissante (poids |cos β|, mémoire 3 s à plat et jusqu'à 30 s à la verticale), si bien
+      qu'une lecture aberrante ne peut plus se graver ; (c) tant qu'aucune pose fiable n'a été
+      vue, une boussole mal conditionnée entre quand même au poids plancher — une séance
+      entière téléphone dressé finit par trouver le nord en moyennant le bruit, au lieu de
+      geler la toute première valeur, la plus douteuse de toutes ; une fois le nord acquis en
+      pose franche, ces lectures-là ne pèsent plus rien (le suivi gyroscopique reste intact).
+      Au passage : l'app ne fait plus semblant quand le navigateur ne donne AUCUN nord (ni
+      `deviceorientationabsolute`, ni boussole iOS — le cap relatif a une origine arbitraire à
+      chaque lancement) : avis rouge « Ce navigateur ne donne pas le nord », effacé dès que le
+      cap est recalé, et source du nord (`boussole` / `absolu` / `relatif`) plus accord des
+      lectures dans le rapport de débogage. Tests unitaires (première lecture vers le ciel,
+      première lecture aberrante à la verticale, accord exposé) et deux scénarios bout en bout
+      dans Chromium sur le build de prod : flux iOS visant 8° au-dessus de l'horizon → « 90° ·
+      E » (270° sans le correctif), flux sans nord → avis affiché, cap arbitraire de 12°
+      rattrapé par « Recaler sur l'horizon » et avis effacé.

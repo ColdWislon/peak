@@ -35,6 +35,7 @@ const CAMERA = { w: 960, h: 1280, shortFovDeg: 55 };
 describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', () => {
   let preview: ChildProcess | undefined;
   let browser: import('playwright').Browser | undefined;
+  let context: import('playwright').BrowserContext;
   let page: import('playwright').Page;
 
   beforeAll(async () => {
@@ -60,7 +61,7 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
       if (!executablePath) throw error;
       browser = await chromium.launch({ executablePath });
     }
-    const context = await browser.newContext({ viewport: { width: VIEW_W, height: VIEW_H } });
+    context = await browser.newContext({ viewport: { width: VIEW_W, height: VIEW_H } });
 
     // Les routes Playwright se résolvent de la dernière à la première : le
     // filet « tout interdire » s'enregistre AVANT les routes spécifiques.
@@ -261,6 +262,76 @@ describe.skipIf(!process.env.CIMES_E2E)('bout en bout : Viser dans Chromium', ()
     expect(dark).toBeGreaterThan(shot.width * 0.9);
   }, 120_000);
 
+  it('boussole iOS, visée au-dessus de l’horizon : le cap n’est plus retourné', async () => {
+    // Rapport terrain « la boussole était complètement fausse » : téléphone
+    // dressé un peu vers le ciel (β = 98° > 90°), le haut de l'appareil bascule
+    // derrière — son azimut se retourne de 180°. Pris au pied de la lettre, le
+    // nord se gravait à l'envers pour toute la séance.
+    const ios = await context.newPage();
+    ios.on('pageerror', (error) => console.error('[page iOS]', error.message));
+    await ios.addInitScript(() => {
+      const e2e = (
+        window as unknown as {
+          __cimesE2E: { sensor: { pitch: number }; mode: string };
+        }
+      ).__cimesE2E;
+      e2e.mode = 'ios';
+      e2e.sensor.pitch = 8;
+    });
+    try {
+      await ios.goto(
+        `${BASE}?lat=${WORLD_VIEWPOINT.lat.toFixed(5)}&lon=${WORLD_VIEWPOINT.lon.toFixed(5)}&mode=viser`,
+      );
+      await ios.getByRole('button', { name: 'Activer caméra et capteurs' }).click();
+      await ios.waitForSelector('.readout', { timeout: 60_000 });
+      await ios.waitForTimeout(2_000); // convergence du nord appris
+      // Cap vrai 90° (est) : l'ancienne lecture retournée donnait 270° (ouest).
+      expect((await ios.locator('.readout').textContent()) ?? '').toContain('90° · E');
+      // Le nord vient de la boussole : pas d'avis « ce navigateur ne donne pas
+      // le nord » (réservé aux flux sans référence absolue).
+      expect(await ios.locator('.hint.wrap').count()).toBe(0);
+    } finally {
+      await ios.close();
+    }
+  }, 120_000);
+
+  it('orientation sans nord : l’app le dit au lieu d’afficher un cap inventé', async () => {
+    // Navigateur qui n'émet ni flux absolu ni `webkitCompassHeading` : l'origine
+    // du cap est arbitraire (ici 12° à côté). Le ruban ne peut pas être juste —
+    // l'app doit l'annoncer, et le recalage manuel doit faire taire l'avis.
+    const blind = await context.newPage();
+    blind.on('pageerror', (error) => console.error('[page relatif]', error.message));
+    await blind.addInitScript(() => {
+      (window as unknown as { __cimesE2E: { mode: string } }).__cimesE2E.mode = 'relatif';
+    });
+    try {
+      await blind.goto(
+        `${BASE}?lat=${WORLD_VIEWPOINT.lat.toFixed(5)}&lon=${WORLD_VIEWPOINT.lon.toFixed(5)}&mode=viser`,
+      );
+      await blind.getByRole('button', { name: 'Activer caméra et capteurs' }).click();
+      await blind.waitForSelector('.hint.wrap', { timeout: 60_000 });
+      expect((await blind.locator('.hint.wrap').textContent()) ?? '').toContain(
+        'ne donne pas le nord',
+      );
+      // Cap arbitraire : 102° au lieu de 90° — d'où l'avis.
+      expect((await blind.locator('.readout').textContent()) ?? '').toContain('102°');
+      if (process.env.CIMES_E2E_DEBUG) {
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(`${process.env.CIMES_E2E_DEBUG}/s4.png`, await blind.screenshot());
+      }
+
+      // Recalage sur l'horizon : l'avis s'efface, le cap retombe sur l'est.
+      await blind.waitForSelector('button.calibrate', { timeout: 90_000 });
+      await blind.getByRole('button', { name: 'Recaler sur l’horizon' }).click();
+      await blind.waitForSelector('.calib-message', { timeout: 30_000 });
+      await blind.waitForTimeout(600);
+      expect(await blind.locator('.hint.wrap').count()).toBe(0);
+      expect((await blind.locator('.readout').textContent()) ?? '').toContain('90° · E');
+    } finally {
+      await blind.close();
+    }
+  }, 120_000);
+
   /** Ancre de l'étiquette de sommet en coordonnées de FENÊTRE (celles des
    *  captures) : l'élément `.peak` est un point de taille nulle posé sur la
    *  pointe du sommet, au pied du trait de rappel. Le rectangle de la capsule
@@ -397,7 +468,13 @@ interface InitConfig {
 
 /** Tourne DANS la page, avant l'app : getUserMedia + DeviceOrientationEvent. */
 function initFakeSensors({ ref, truth, camera }: InitConfig): void {
-  const state = { sensor: { ...truth }, truth: { ...truth } };
+  // `mode` : flux absolu Android (défaut) ou flux relatif + boussole iOS —
+  // un script d'initialisation de page peut le changer avant le démarrage.
+  const state = {
+    sensor: { ...truth },
+    truth: { ...truth },
+    mode: 'android' as 'android' | 'ios' | 'relatif',
+  };
   (window as unknown as { __cimesE2E: typeof state }).__cimesE2E = state;
 
   const refElev = (azimuthDeg: number): number => {
@@ -438,13 +515,45 @@ function initFakeSensors({ ref, truth, camera }: InitConfig): void {
     value: async () => fakeStream,
   });
 
-  // Capteurs : flux « deviceorientationabsolute » Android-like. Téléphone
-  // portrait face à la scène : α = −cap, β = 90° + assiette, γ = 0.
+  // Capteurs. Téléphone portrait face à la scène : α = −cap, β = 90° +
+  // assiette, γ = 0. Trois flux possibles :
+  //  • Android : « deviceorientationabsolute », α déjà rapporté au nord ;
+  //  • iOS : « deviceorientation » relatif (α d'origine arbitraire) plus
+  //    `webkitCompassHeading`, l'azimut du HAUT de l'appareil — lequel se
+  //    retourne de 180° dès que l'on vise AU-DESSUS de l'horizon (β > 90°) ;
+  //  • relatif : orientation SANS nord (ni flux absolu, ni boussole).
   setInterval(() => {
+    const beta = 90 + state.sensor.pitch;
+    if (state.mode === 'relatif') {
+      // Origine de cap arbitraire (12°), dans la fenêtre du recaleur d'horizon.
+      const alpha = (((-state.sensor.heading - 12) % 360) + 360) % 360;
+      window.dispatchEvent(
+        new DeviceOrientationEvent('deviceorientation', { alpha, beta, gamma: 0, absolute: false }),
+      );
+      return;
+    }
+    if (state.mode === 'ios') {
+      // α absolu de la pose vraie ; le flux relatif d'iOS en diffère d'une
+      // origine arbitraire (37°) que seule la boussole permet de rattraper.
+      const alphaAbs = ((-state.sensor.heading % 360) + 360) % 360;
+      const alpha = (((alphaAbs - 37) % 360) + 360) % 360;
+      const flipped = Math.cos((beta * Math.PI) / 180) < 0;
+      const compass = (((flipped ? 180 - alphaAbs : -alphaAbs) % 360) + 360) % 360;
+      const event = new DeviceOrientationEvent('deviceorientation', {
+        alpha,
+        beta,
+        gamma: 0,
+        absolute: false,
+      });
+      Object.defineProperty(event, 'webkitCompassHeading', { value: compass });
+      Object.defineProperty(event, 'webkitCompassAccuracy', { value: 5 });
+      window.dispatchEvent(event);
+      return;
+    }
     const alpha = ((-state.sensor.heading % 360) + 360) % 360;
     const event = new DeviceOrientationEvent('deviceorientationabsolute', {
       alpha,
-      beta: 90 + state.sensor.pitch,
+      beta,
       gamma: 0,
       absolute: true,
     });
